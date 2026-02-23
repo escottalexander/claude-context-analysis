@@ -3,8 +3,8 @@ import { Command } from "commander";
 import { readdir, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline";
 import chalk from "chalk";
-import Table from "cli-table3";
 import { readJsonl } from "./parser/jsonl-reader.js";
 import { SessionTree } from "./parser/session-tree.js";
 import { analyzeReasoningChain } from "./analyzers/reasoning-chain.js";
@@ -16,6 +16,7 @@ import {
   renderToolDashboard,
   renderContextTracker,
   renderSkillImpact,
+  renderSessionTable,
   type TerminalOptions,
 } from "./output/terminal.js";
 import { buildAnalysisResult, writeJsonSummary } from "./output/json-summary.js";
@@ -28,15 +29,101 @@ program
   .description("Claude Code Session Analyzer")
   .version("0.1.0");
 
+// --- Shared session discovery ---
+
+interface SessionInfo {
+  project: string;
+  file: string;
+  fullPath: string;
+  size: number;
+  mtime: Date;
+}
+
+async function discoverSessions(): Promise<SessionInfo[]> {
+  const baseDir = join(homedir(), ".claude", "projects");
+  let projects: string[];
+  try {
+    projects = await readdir(baseDir);
+  } catch {
+    return [];
+  }
+
+  const sessions: SessionInfo[] = [];
+
+  for (const project of projects) {
+    const projectDir = join(baseDir, project);
+    const projectStat = await stat(projectDir).catch(() => null);
+    if (!projectStat?.isDirectory()) continue;
+
+    const files = await readdir(projectDir).catch(() => []);
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const fullPath = join(projectDir, file);
+      const fileStat = await stat(fullPath).catch(() => null);
+      if (!fileStat) continue;
+      sessions.push({
+        project,
+        file: basename(file, ".jsonl"),
+        fullPath,
+        size: fileStat.size,
+        mtime: fileStat.mtime,
+      });
+    }
+  }
+
+  sessions.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return sessions;
+}
+
+async function promptSessionPicker(): Promise<string> {
+  const sessions = await discoverSessions();
+  if (sessions.length === 0) {
+    console.error(chalk.red("No sessions found in ~/.claude/projects/"));
+    process.exit(1);
+  }
+
+  const shown = sessions.slice(0, 30);
+  const rows = shown.map((s, i) => ({
+    index: i + 1,
+    project: shortenProject(s.project),
+    session: s.file.slice(0, 12) + "…",
+    size: formatBytes(s.size),
+    modified: s.mtime.toLocaleDateString(),
+  }));
+
+  console.log(chalk.bold(`\n Found ${sessions.length} sessions\n`));
+  console.log(renderSessionTable(rows));
+
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(chalk.bold("\n  Select session number: "), resolve);
+  });
+  rl.close();
+
+  const index = parseInt(answer, 10) - 1;
+  if (isNaN(index) || index < 0 || index >= shown.length) {
+    console.error(chalk.red(`Invalid selection: ${answer}`));
+    process.exit(1);
+  }
+
+  return shown[index].fullPath;
+}
+
+// --- Commands ---
+
 program
   .command("analyze")
-  .description("Analyze a single JSONL session file")
-  .argument("<path>", "Path to the JSONL session file")
+  .description("Analyze a JSONL session file (prompts for selection if no path given)")
+  .argument("[path]", "Path to the JSONL session file")
   .option("--json", "Output JSON instead of terminal display")
   .option("--output <path>", "Write JSON to a specific file")
   .option("--tool-filter <name>", "Filter tool dashboard by tool name")
   .option("--no-thinking", "Hide thinking blocks in timeline")
-  .action(async (filePath: string, opts: Record<string, unknown>) => {
+  .action(async (filePath: string | undefined, opts: Record<string, unknown>) => {
+    if (!filePath) {
+      filePath = await promptSessionPicker();
+    }
+
     const events = await readJsonl(filePath);
     if (events.length === 0) {
       console.error(chalk.red("No events found in file."));
@@ -85,79 +172,28 @@ program
   .command("list")
   .description("Browse all sessions in ~/.claude/projects/")
   .action(async () => {
-    const baseDir = join(homedir(), ".claude", "projects");
-    let projects: string[];
-    try {
-      projects = await readdir(baseDir);
-    } catch {
-      console.error(
-        chalk.red(`Cannot read ${baseDir}. Is Claude Code installed?`)
-      );
-      process.exit(1);
-    }
-
-    const sessions: {
-      project: string;
-      file: string;
-      fullPath: string;
-      size: number;
-      mtime: Date;
-    }[] = [];
-
-    for (const project of projects) {
-      const projectDir = join(baseDir, project);
-      const projectStat = await stat(projectDir).catch(() => null);
-      if (!projectStat?.isDirectory()) continue;
-
-      const files = await readdir(projectDir).catch(() => []);
-      for (const file of files) {
-        if (!file.endsWith(".jsonl")) continue;
-        const fullPath = join(projectDir, file);
-        const fileStat = await stat(fullPath).catch(() => null);
-        if (!fileStat) continue;
-        sessions.push({
-          project,
-          file: basename(file, ".jsonl"),
-          fullPath,
-          size: fileStat.size,
-          mtime: fileStat.mtime,
-        });
-      }
-    }
-
-    sessions.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    const sessions = await discoverSessions();
 
     if (sessions.length === 0) {
       console.log(chalk.yellow("No sessions found."));
       return;
     }
 
-    const table = new Table({
-      head: ["#", "Project", "Session", "Size", "Modified"].map((h) =>
-        chalk.bold(h)
-      ),
-      style: { head: [], border: [] },
-    });
-
-    for (let i = 0; i < Math.min(sessions.length, 30); i++) {
-      const s = sessions[i];
-      table.push([
-        String(i + 1),
-        shortenProject(s.project),
-        s.file.slice(0, 12) + "…",
-        formatBytes(s.size),
-        s.mtime.toLocaleDateString(),
-      ]);
-    }
+    const shown = sessions.slice(0, 30);
+    const rows = shown.map((s, i) => ({
+      index: i + 1,
+      project: shortenProject(s.project),
+      session: s.file.slice(0, 12) + "…",
+      size: formatBytes(s.size),
+      modified: s.mtime.toLocaleDateString(),
+    }));
 
     console.log(chalk.bold(`\n Found ${sessions.length} sessions\n`));
-    console.log(table.toString());
+    console.log(renderSessionTable(rows));
 
     if (sessions.length > 0) {
       console.log(
-        chalk.gray(
-          `\n  Analyze with: npx tsx src/cli.ts analyze ${sessions[0].fullPath}\n`
-        )
+        chalk.gray(`\n  Analyze a session: npx tsx src/cli.ts analyze\n`)
       );
     }
   });

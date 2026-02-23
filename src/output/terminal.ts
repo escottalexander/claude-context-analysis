@@ -15,11 +15,17 @@ export interface TerminalOptions {
   toolFilter: string | null;
 }
 
+function getTermWidth(): number {
+  return process.stdout.columns || 100;
+}
+
 export function renderTimeline(
   timeline: TimelineEntry[],
   opts: TerminalOptions
 ): string {
   const lines: string[] = [chalk.bold.underline("\n Reasoning Chain\n")];
+  // 10 chars for timestamp + space + icon + space = ~15 overhead
+  const contentMax = Math.max(40, getTermWidth() - 16);
 
   for (const entry of timeline) {
     if (entry.type === "thinking" && !opts.showThinking) continue;
@@ -28,24 +34,27 @@ export function renderTimeline(
 
     switch (entry.type) {
       case "thinking":
-        lines.push(`${time} ${chalk.dim("💭 " + truncate(entry.content, 120))}`);
+        lines.push(`${time} ${chalk.dim("💭 " + truncate(entry.content, contentMax))}`);
         break;
       case "text":
-        lines.push(`${time} ${chalk.white("💬 " + truncate(entry.content, 120))}`);
+        lines.push(`${time} ${chalk.white("💬 " + truncate(entry.content, contentMax))}`);
         break;
-      case "tool_use":
+      case "tool_use": {
+        const nameLen = (entry.toolName ?? "").length + 3; // icon + space + name + space
+        const inputMax = Math.max(20, contentMax - nameLen);
         lines.push(
-          `${time} ${chalk.cyan("🔧 " + entry.toolName)} ${chalk.gray(truncate(entry.content.replace(`${entry.toolName}(`, "("), 100))}`
+          `${time} ${chalk.cyan("🔧 " + entry.toolName)} ${chalk.gray(truncate(entry.content.replace(`${entry.toolName}(`, "("), inputMax))}`
         );
         break;
+      }
       case "tool_result":
         if (entry.isError) {
           lines.push(
-            `${time} ${chalk.red("❌ " + truncate(entry.content, 120))}`
+            `${time} ${chalk.red("❌ " + truncate(entry.content, contentMax))}`
           );
         } else {
           lines.push(
-            `${time} ${chalk.green("✅ " + truncate(entry.content, 120))}`
+            `${time} ${chalk.green("✅ " + truncate(entry.content, contentMax))}`
           );
         }
         break;
@@ -62,8 +71,9 @@ export function renderToolDashboard(
   opts: TerminalOptions
 ): string {
   const lines: string[] = [chalk.bold.underline("\n Tool Dashboard\n")];
+  const termWidth = getTermWidth();
 
-  // Tool stats table
+  // Tool stats table — fixed-width columns, always fits
   const filtered = opts.toolFilter
     ? toolStats.filter(
         (s) => s.name.toLowerCase() === opts.toolFilter!.toLowerCase()
@@ -88,16 +98,20 @@ export function renderToolDashboard(
   }
   lines.push(statsTable.toString());
 
-  // File access
+  // File access — constrain file column to fit terminal
   if (fileAccess.length > 0) {
     lines.push(chalk.bold("\n  Files Accessed\n"));
+    // 3 numeric cols ~7 chars each + borders ~20 chars
+    const fileColWidth = Math.max(20, termWidth - 42);
     const fileTable = new Table({
       head: ["File", "Reads", "Writes", "Edits"].map((h) => chalk.bold(h)),
       style: { head: [], border: [] },
+      colWidths: [fileColWidth, null, null, null],
+      wordWrap: true,
     });
     for (const f of fileAccess.slice(0, 15)) {
       fileTable.push([
-        shortenPath(f.path),
+        shortenPath(f.path, fileColWidth - 2),
         String(f.reads),
         String(f.writes),
         String(f.edits),
@@ -127,15 +141,19 @@ export function renderContextTracker(
   compactions: CompactionEvent[]
 ): string {
   const lines: string[] = [chalk.bold.underline("\n Context Tracker\n")];
+  const termWidth = getTermWidth();
 
-  const BAR_WIDTH = 50;
+  // Scale bar to fit: label(6) + space + bar + space + pct(6) + space + breakdown(~55) + pad(4)
+  const breakdownWidth = 55;
+  const fixedWidth = 6 + 1 + 1 + 6 + 2 + breakdownWidth + 4;
+  const barWidth = Math.max(10, Math.min(50, termWidth - fixedWidth));
 
   for (const turn of turns) {
     const pct = turn.percentOfLimit;
-    const filled = Math.round((pct / 100) * BAR_WIDTH);
+    const filled = Math.round((pct / 100) * barWidth);
     const bar =
-      chalk.blue("█".repeat(Math.min(filled, BAR_WIDTH))) +
-      chalk.gray("░".repeat(Math.max(BAR_WIDTH - filled, 0)));
+      chalk.blue("█".repeat(Math.min(filled, barWidth))) +
+      chalk.gray("░".repeat(Math.max(barWidth - filled, 0)));
 
     const label = `T${String(turn.turnIndex).padStart(3)}`;
     const pctStr = `${pct.toFixed(1)}%`.padStart(6);
@@ -173,17 +191,22 @@ export function renderSkillImpact(impacts: SkillFileImpact[]): string {
   if (impacts.length === 0) return "";
 
   const lines: string[] = [chalk.bold.underline("\n Skill/Config Impact\n")];
+  const termWidth = getTermWidth();
 
+  // Type(~12) + Est.Tokens(~14) + Cache Spike(~14) + borders(~20)
+  const fileColWidth = Math.max(20, termWidth - 60);
   const table = new Table({
     head: ["File", "Type", "Est. Tokens", "Cache Spike"].map((h) =>
       chalk.bold(h)
     ),
     style: { head: [], border: [] },
+    colWidths: [fileColWidth, null, null, null],
+    wordWrap: true,
   });
 
   for (const impact of impacts) {
     table.push([
-      shortenPath(impact.filePath),
+      shortenPath(impact.filePath, fileColWidth - 2),
       chalk.magenta(impact.type),
       impact.estimatedTokens.toLocaleString(),
       impact.cacheCreationSpike > 0
@@ -194,6 +217,36 @@ export function renderSkillImpact(impacts: SkillFileImpact[]): string {
 
   lines.push(table.toString());
   return lines.join("\n");
+}
+
+// Also export for use by cli.ts session tables
+export function renderSessionTable(
+  rows: { index: number; project: string; session: string; size: string; modified: string }[]
+): string {
+  const termWidth = getTermWidth();
+  // #(4) + Session(16) + Size(10) + Modified(12) + borders(~22)
+  const projectColWidth = Math.max(15, termWidth - 64);
+
+  const table = new Table({
+    head: ["#", "Project", "Session", "Size", "Modified"].map((h) =>
+      chalk.bold(h)
+    ),
+    style: { head: [], border: [] },
+    colWidths: [4, projectColWidth, 16, 10, 12],
+    wordWrap: true,
+  });
+
+  for (const r of rows) {
+    table.push([
+      String(r.index),
+      truncate(r.project, projectColWidth - 2),
+      r.session,
+      r.size,
+      r.modified,
+    ]);
+  }
+
+  return table.toString();
 }
 
 function formatTime(timestamp: string): string {
@@ -211,15 +264,21 @@ function truncate(str: string, max: number): string {
   return oneLine.slice(0, max) + "…";
 }
 
-function shortenPath(filePath: string): string {
+function shortenPath(filePath: string, maxLen: number = 50): string {
   const home = process.env.HOME ?? "";
-  if (home && filePath.startsWith(home)) {
-    return "~" + filePath.slice(home.length);
+  let shortened = filePath;
+  if (home && shortened.startsWith(home)) {
+    shortened = "~" + shortened.slice(home.length);
   }
-  // Show last 3 segments
-  const parts = filePath.split("/");
-  if (parts.length > 3) {
-    return "…/" + parts.slice(-3).join("/");
-  }
-  return filePath;
+  if (shortened.length <= maxLen) return shortened;
+
+  // Progressively trim from the left, keeping the filename
+  const parts = shortened.split("/");
+  if (parts.length <= 2) return truncate(shortened, maxLen);
+
+  // Always keep the last 2 segments (parent dir + filename)
+  const tail = parts.slice(-2).join("/");
+  if (tail.length + 2 >= maxLen) return truncate(tail, maxLen);
+
+  return "…/" + tail;
 }

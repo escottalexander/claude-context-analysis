@@ -11,14 +11,14 @@ npm install
 ### Typical Workflow
 
 ```bash
-# 1. List your recent sessions
-npx tsx src/cli.ts list
+# 1. Pick a session interactively and analyze it
+npx tsx src/cli.ts analyze
 
-# 2. Analyze a session
+# 2. Or pass a path directly
 npx tsx src/cli.ts analyze ~/.claude/projects/<project>/<session-id>.jsonl
 
 # 3. Export as JSON for further processing
-npx tsx src/cli.ts analyze <path-to-session.jsonl> --json
+npx tsx src/cli.ts analyze --json
 ```
 
 ## Usage
@@ -33,6 +33,8 @@ npx tsx src/cli.ts list
 
 ### `analyze` - Analyze a Session
 
+Run without arguments to pick from a list of recent sessions, or pass a path directly.
+
 Produces four analysis sections:
 
 1. **Reasoning Chain** - Chronological timeline of thinking, tool calls, and text output
@@ -41,7 +43,10 @@ Produces four analysis sections:
 4. **Skill/Config Impact** - Estimated token cost of CLAUDE.md, skills, and config files
 
 ```bash
-# Full terminal output
+# Interactive session picker
+npx tsx src/cli.ts analyze
+
+# Direct path
 npx tsx src/cli.ts analyze <path>
 
 # Hide thinking blocks
