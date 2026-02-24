@@ -219,6 +219,25 @@ export interface SkillFileImpact {
   cacheCreationSpike: number;
 }
 
+export interface NetworkRequestEntry {
+  toolUseId: string;
+  toolName: string;
+  scopeId: string;
+  startTimestamp: string;
+  endTimestamp: string | null;
+  latencyMs: number | null;
+  ctxSpikeTokens: number;
+  isError: boolean;
+  toolInput: Record<string, unknown>;
+  toolResultContent: string | null;
+}
+
+export interface NetworkAgentScope {
+  id: string;
+  label: string;
+  requests: NetworkRequestEntry[];
+}
+
 export interface AnalysisResult {
   sessionId: string;
   sessionStart: string;

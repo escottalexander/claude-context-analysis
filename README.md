@@ -62,6 +62,26 @@ npx tsx src/cli.ts analyze <path> --json
 npx tsx src/cli.ts analyze <path> --output analysis.json
 ```
 
+### `network` - Interactive Agent-Scoped Network View
+
+Shows tool requests as an agent-scoped timeline. Only one scope is active at a time (`main` or sidechain agent), with per-request `Latency` and `Ctx+` columns plus an optional detail pane.
+
+```bash
+# Interactive session picker
+npx tsx src/cli.ts network
+
+# Direct path
+npx tsx src/cli.ts network <path>
+```
+
+Keybindings:
+
+- `←` / `→` switch agent scope tabs
+- `↑` / `↓` move request selection within active scope
+- `Enter` open detail pane for selected request
+- `Esc` close detail pane
+- `q` quit
+
 ### `serve` - Real-time Hook Receiver
 
 Starts an HTTP server that receives live tool call data from Claude Code hooks.
