@@ -11,6 +11,7 @@ import { analyzeReasoningChain } from "./analyzers/reasoning-chain.js";
 import { analyzeToolDashboard } from "./analyzers/tool-dashboard.js";
 import { analyzeContext } from "./analyzers/context-tracker.js";
 import { analyzeSkills } from "./analyzers/skill-detector.js";
+import { analyzeNetworkTab } from "./analyzers/network-tab.js";
 import {
   renderTimeline,
   renderToolDashboard,
@@ -19,6 +20,12 @@ import {
   renderSessionTable,
   type TerminalOptions,
 } from "./output/terminal.js";
+import {
+  createNetworkState,
+  reduceNetworkState,
+  type NetworkState,
+} from "./output/network-state.js";
+import { renderNetworkFrame } from "./output/network-tui.js";
 import { buildAnalysisResult, writeJsonSummary } from "./output/json-summary.js";
 import { startHookServer } from "./hooks/hook-server.js";
 
@@ -205,6 +212,96 @@ program
   .action(async (opts: { port: string }) => {
     const port = parseInt(opts.port, 10);
     startHookServer(port);
+  });
+
+program
+  .command("network")
+  .description("Interactive network-tab style request inspector")
+  .argument("[path]", "Path to the JSONL session file")
+  .action(async (filePath?: string) => {
+    if (!filePath) {
+      filePath = await promptSessionPicker();
+    }
+
+    const events = await readJsonl(filePath);
+    if (events.length === 0) {
+      console.error(chalk.red("No events found in file."));
+      process.exit(1);
+    }
+
+    const tree = new SessionTree(events);
+    const network = analyzeNetworkTab(tree);
+    let state = createNetworkState(network.scopes.map((scope) => scope.id));
+    const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
+    const render = (currentState: NetworkState): void => {
+      const frame = renderNetworkFrame({ scopes: network.scopes, state: currentState });
+      process.stdout.write("\x1Bc");
+      process.stdout.write(
+        `${chalk.bold("Network View")}  ${chalk.gray("←/→ scope  ↑/↓ rows  Enter details  Esc close  q quit")}\n\n`
+      );
+      process.stdout.write(frame + "\n");
+    };
+
+    if (!isInteractive) {
+      render(state);
+      return;
+    }
+
+    render(state);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+
+    const cleanUp = (): void => {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.removeListener("data", onKeypress);
+      process.stdout.write("\n");
+    };
+
+    const onKeypress = (chunk: string): void => {
+      const activeScope = network.scopes.find((scope) => scope.id === state.activeScopeId);
+      const maxIndex = Math.max(0, (activeScope?.requests.length ?? 1) - 1);
+
+      if (chunk === "q" || chunk === "\u0003") {
+        state = reduceNetworkState(state, { type: "quit" });
+      } else if (chunk === "\u001b[C") {
+        state = reduceNetworkState(state, { type: "next-scope" });
+      } else if (chunk === "\u001b[D") {
+        state = reduceNetworkState(state, { type: "prev-scope" });
+      } else if (chunk === "\u001b[A") {
+        state = reduceNetworkState(state, { type: "move-up" });
+      } else if (chunk === "\u001b[B") {
+        state = reduceNetworkState(state, { type: "move-down", maxIndex });
+      } else if (chunk === "\r") {
+        state = reduceNetworkState(state, { type: "open-detail" });
+      } else if (chunk === "\u001b") {
+        state = reduceNetworkState(state, { type: "close-detail" });
+      } else {
+        return;
+      }
+
+      if (state.shouldQuit) {
+        cleanUp();
+        return;
+      }
+      render(state);
+    };
+
+    process.stdin.on("data", onKeypress);
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        process.stdin.removeListener("data", exitListener);
+        resolve();
+      };
+      const exitListener = (chunk: string): void => {
+        if (chunk === "q" || chunk === "\u0003") {
+          finish();
+        }
+      };
+      process.stdin.on("data", exitListener);
+    });
   });
 
 program.parse();
