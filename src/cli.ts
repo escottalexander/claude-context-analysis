@@ -223,7 +223,7 @@ program
       filePath = await promptSessionPicker();
     }
 
-    const events = await readJsonl(filePath);
+    const events = await readSessionBundle(filePath);
     if (events.length === 0) {
       console.error(chalk.red("No events found in file."));
       process.exit(1);
