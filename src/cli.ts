@@ -5,7 +5,7 @@ import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import chalk from "chalk";
-import { readJsonl } from "./parser/jsonl-reader.js";
+import { readSessionBundle } from "./parser/jsonl-reader.js";
 import { SessionTree } from "./parser/session-tree.js";
 import { analyzeReasoningChain } from "./analyzers/reasoning-chain.js";
 import { analyzeToolDashboard } from "./analyzers/tool-dashboard.js";
@@ -124,7 +124,7 @@ program
       filePath = await promptSessionPicker();
     }
 
-    const events = await readJsonl(filePath);
+    const events = await readSessionBundle(filePath);
     if (events.length === 0) {
       console.error(chalk.red("No events found in file."));
       process.exit(1);

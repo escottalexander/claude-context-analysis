@@ -1,4 +1,6 @@
 import { createReadStream } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import type { SessionEvent } from "../types.js";
 
@@ -38,4 +40,34 @@ export async function readJsonl(filePath: string): Promise<SessionEvent[]> {
   }
 
   return events;
+}
+
+export async function readSessionBundle(filePath: string): Promise<SessionEvent[]> {
+  const mainEvents = await readJsonl(filePath);
+  const sidechainPaths = await discoverSidechainJsonls(filePath);
+
+  if (sidechainPaths.length === 0) {
+    return mainEvents;
+  }
+
+  const sidechainLists = await Promise.all(
+    sidechainPaths.map((sidechainPath) => readJsonl(sidechainPath))
+  );
+
+  return [...mainEvents, ...sidechainLists.flat()];
+}
+
+async function discoverSidechainJsonls(filePath: string): Promise<string[]> {
+  const parsed = path.parse(filePath);
+  if (parsed.ext !== ".jsonl") return [];
+
+  const bundleDir = path.join(parsed.dir, parsed.name);
+  const subagentsDir = path.join(bundleDir, "subagents");
+  const subagentStat = await stat(subagentsDir).catch(() => null);
+  if (!subagentStat?.isDirectory()) return [];
+
+  const entries = await readdir(subagentsDir).catch(() => []);
+  return entries
+    .filter((entry) => entry.endsWith(".jsonl"))
+    .map((entry) => path.join(subagentsDir, entry));
 }

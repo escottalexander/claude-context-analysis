@@ -1,5 +1,6 @@
 import type { SessionTree } from "../parser/session-tree.js";
 import type {
+  AssistantEvent,
   ToolStats,
   FileAccess,
   ToolPattern,
@@ -14,14 +15,29 @@ export interface ToolDashboardResult {
 
 export function analyzeToolDashboard(tree: SessionTree): ToolDashboardResult {
   const pairs = tree.getToolPairs();
+  const assistantEvents = tree.getAssistantEvents();
+  const tokenAttributionByTool = computeTokenAttributionByTool(
+    assistantEvents,
+    pairs
+  );
   return {
-    toolStats: computeToolStats(pairs),
+    toolStats: computeToolStats(pairs, tokenAttributionByTool),
     fileAccess: computeFileAccess(pairs),
     toolPatterns: detectPatterns(pairs),
   };
 }
 
-function computeToolStats(pairs: ToolPair[]): ToolStats[] {
+interface ToolTokenAttribution {
+  input: number;
+  cacheCreation: number;
+  cacheRead: number;
+  output: number;
+}
+
+function computeToolStats(
+  pairs: ToolPair[],
+  tokenAttributionByTool: Map<string, ToolTokenAttribution>
+): ToolStats[] {
   const stats = new Map<
     string,
     { count: number; successes: number; failures: number; durations: number[] }
@@ -69,8 +85,106 @@ function computeToolStats(pairs: ToolPair[]): ToolStats[] {
               s.durations.reduce((a, b) => a + b, 0) / s.durations.length
             )
           : null,
+      attributedInputTokens:
+        Math.round((tokenAttributionByTool.get(name)?.input ?? 0) * 10) / 10,
+      attributedCacheCreationTokens:
+        Math.round((tokenAttributionByTool.get(name)?.cacheCreation ?? 0) * 10) /
+        10,
+      attributedCacheReadTokens:
+        Math.round((tokenAttributionByTool.get(name)?.cacheRead ?? 0) * 10) / 10,
+      attributedOutputTokens:
+        Math.round((tokenAttributionByTool.get(name)?.output ?? 0) * 10) / 10,
+      attributedTotalTokens:
+        Math.round(
+          ((tokenAttributionByTool.get(name)?.input ?? 0) +
+            (tokenAttributionByTool.get(name)?.cacheCreation ?? 0) +
+            (tokenAttributionByTool.get(name)?.cacheRead ?? 0) +
+            (tokenAttributionByTool.get(name)?.output ?? 0)) *
+            10
+        ) / 10,
     }))
     .sort((a, b) => b.count - a.count);
+}
+
+function computeTokenAttributionByTool(
+  assistantEvents: AssistantEvent[],
+  pairs: ToolPair[]
+): Map<string, ToolTokenAttribution> {
+  const toolNameById = new Map<string, string>();
+  for (const pair of pairs) {
+    toolNameById.set(pair.toolUse.id, pair.toolUse.name);
+  }
+
+  const turns = new Map<
+    string,
+    {
+      toolUseIds: Set<string>;
+      input: number;
+      cacheCreation: number;
+      cacheRead: number;
+      output: number;
+    }
+  >();
+
+  for (const event of assistantEvents) {
+    const scopeKey = event.isSidechain
+      ? `sidechain:${event.agentId ?? "unknown"}`
+      : "main";
+    const turnKey = event.requestId ?? event.message.id ?? event.uuid;
+    const key = `${scopeKey}:${turnKey}`;
+    const existing = turns.get(key) ?? {
+      toolUseIds: new Set<string>(),
+      input: 0,
+      cacheCreation: 0,
+      cacheRead: 0,
+      output: 0,
+    };
+
+    const usage = event.message.usage;
+    existing.input = Math.max(existing.input, usage.input_tokens ?? 0);
+    existing.cacheCreation = Math.max(
+      existing.cacheCreation,
+      usage.cache_creation_input_tokens ?? 0
+    );
+    existing.cacheRead = Math.max(
+      existing.cacheRead,
+      usage.cache_read_input_tokens ?? 0
+    );
+    existing.output = Math.max(existing.output, usage.output_tokens ?? 0);
+
+    for (const block of event.message.content) {
+      if (block.type === "tool_use") {
+        existing.toolUseIds.add(block.id);
+      }
+    }
+
+    turns.set(key, existing);
+  }
+
+  const byTool = new Map<string, ToolTokenAttribution>();
+  for (const turn of turns.values()) {
+    const toolNames = [...turn.toolUseIds]
+      .map((id) => toolNameById.get(id))
+      .filter((name): name is string => Boolean(name));
+    if (toolNames.length === 0) continue;
+
+    const share = 1 / toolNames.length;
+    for (const toolName of toolNames) {
+      const existing = byTool.get(toolName) ?? {
+        input: 0,
+        cacheCreation: 0,
+        cacheRead: 0,
+        output: 0,
+      };
+      existing.input += turn.input * share;
+      existing.cacheCreation += turn.cacheCreation * share;
+      existing.cacheRead += turn.cacheRead * share;
+      existing.output += turn.output * share;
+      byTool.set(toolName, existing);
+    }
+  }
+
+  return byTool;
 }
 
 function computeFileAccess(pairs: ToolPair[]): FileAccess[] {

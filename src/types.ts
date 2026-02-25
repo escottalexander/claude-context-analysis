@@ -102,6 +102,7 @@ export interface AssistantEvent {
   version?: string;
   gitBranch?: string;
   slug?: string;
+  agentId?: string;
 }
 
 export interface SystemEvent {
@@ -172,6 +173,8 @@ export interface TimelineEntry {
   toolInput?: Record<string, unknown>;
   toolUseId?: string;
   isError?: boolean;
+  ctxSpikeTokens?: number;
+  assistantTurnId?: string;
 }
 
 export interface ToolStats {
@@ -180,6 +183,11 @@ export interface ToolStats {
   successes: number;
   failures: number;
   avgDurationMs: number | null;
+  attributedInputTokens: number;
+  attributedCacheCreationTokens: number;
+  attributedCacheReadTokens: number;
+  attributedOutputTokens: number;
+  attributedTotalTokens: number;
 }
 
 export interface FileAccess {

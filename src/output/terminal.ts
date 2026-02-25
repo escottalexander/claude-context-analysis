@@ -23,41 +23,58 @@ export function renderTimeline(
   timeline: TimelineEntry[],
   opts: TerminalOptions
 ): string {
-  const lines: string[] = [chalk.bold.underline("\n Reasoning Chain\n")];
+  const lines: string[] = [
+    chalk.bold.underline("\n Reasoning Chain\n"),
+    chalk.gray("  Legend: ┌─ group start, │ shared action, └─ group end/context"),
+  ];
   // 10 chars for timestamp + space + icon + space = ~15 overhead
   const contentMax = Math.max(40, getTermWidth() - 16);
+  const visibleTimeline = timeline.filter(
+    (entry) => !(entry.type === "thinking" && !opts.showThinking)
+  );
 
-  for (const entry of timeline) {
-    if (entry.type === "thinking" && !opts.showThinking) continue;
-
+  for (let i = 0; i < visibleTimeline.length; i++) {
+    const entry = visibleTimeline[i];
     const time = chalk.gray(formatTime(entry.timestamp));
+    const connector = getCtxConnector(visibleTimeline, i);
+    const prefix = `${time} ${chalk.gray(connector)} `;
+    const baseMax = Math.max(20, contentMax - 3);
 
     switch (entry.type) {
       case "thinking":
-        lines.push(`${time} ${chalk.dim("💭 " + truncate(entry.content, contentMax))}`);
+        lines.push(
+          `${prefix}${chalk.dim("💭 " + truncate(entry.content, baseMax))}`
+        );
         break;
       case "text":
-        lines.push(`${time} ${chalk.white("💬 " + truncate(entry.content, contentMax))}`);
+        lines.push(
+          `${prefix}${chalk.white("💬 " + truncate(entry.content, baseMax))}`
+        );
         break;
       case "tool_use": {
         const nameLen = (entry.toolName ?? "").length + 3; // icon + space + name + space
-        const inputMax = Math.max(20, contentMax - nameLen);
+        const inputMax = Math.max(20, baseMax - nameLen);
         lines.push(
-          `${time} ${chalk.cyan("🔧 " + entry.toolName)} ${chalk.gray(truncate(entry.content.replace(`${entry.toolName}(`, "("), inputMax))}`
+          `${prefix}${chalk.cyan("🔧 " + entry.toolName)} ${chalk.gray(truncate(entry.content.replace(`${entry.toolName}(`, "("), inputMax))}`
         );
         break;
       }
       case "tool_result":
         if (entry.isError) {
           lines.push(
-            `${time} ${chalk.red("❌ " + truncate(entry.content, contentMax))}`
+            `${prefix}${chalk.red("❌ " + truncate(entry.content, baseMax))}`
           );
         } else {
           lines.push(
-            `${time} ${chalk.green("✅ " + truncate(entry.content, contentMax))}`
+            `${prefix}${chalk.green("✅ " + truncate(entry.content, baseMax))}`
           );
         }
         break;
+    }
+
+    const ctxLine = formatCtxGroupLine(visibleTimeline, i);
+    if (ctxLine) {
+      lines.push(`${time} ${chalk.gray("└─")} ${ctxLine}`);
     }
   }
 
@@ -81,7 +98,7 @@ export function renderToolDashboard(
     : toolStats;
 
   const statsTable = new Table({
-    head: ["Tool", "Calls", "Success", "Fail", "Avg Duration"].map((h) =>
+    head: ["Tool", "Calls", "Success", "Fail", "Avg Duration", "Tokens"].map((h) =>
       chalk.bold(h)
     ),
     style: { head: [], border: [] },
@@ -94,6 +111,9 @@ export function renderToolDashboard(
       chalk.green(String(s.successes)),
       s.failures > 0 ? chalk.red(String(s.failures)) : "0",
       s.avgDurationMs !== null ? `${s.avgDurationMs}ms` : "-",
+      s.attributedTotalTokens > 0
+        ? s.attributedTotalTokens.toLocaleString()
+        : "-",
     ]);
   }
   lines.push(statsTable.toString());
@@ -258,7 +278,8 @@ function formatTime(timestamp: string): string {
   }
 }
 
-function truncate(str: string, max: number): string {
+function truncate(value: unknown, max: number): string {
+  const str = stringifyForDisplay(value);
   const oneLine = str.replace(/\n/g, " ").trim();
   if (oneLine.length <= max) return oneLine;
   return oneLine.slice(0, max) + "…";
@@ -281,4 +302,79 @@ function shortenPath(filePath: string, maxLen: number = 50): string {
   if (tail.length + 2 >= maxLen) return truncate(tail, maxLen);
 
   return "…/" + tail;
+}
+
+function stringifyForDisplay(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) {
+    return value.map((v) => stringifyForDisplay(v)).join(" ");
+  }
+  if (typeof value === "object") {
+    if (
+      "text" in value &&
+      typeof (value as { text?: unknown }).text === "string"
+    ) {
+      return (value as { text: string }).text;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function getCtxConnector(timeline: TimelineEntry[], index: number): string {
+  const entry = timeline[index];
+  const turnId = entry.assistantTurnId;
+  if (!turnId || (entry.ctxSpikeTokens ?? 0) <= 0) return "  ";
+
+  const prev = timeline[index - 1];
+  const next = timeline[index + 1];
+  const samePrev = prev?.assistantTurnId === turnId;
+  const sameNext = next?.assistantTurnId === turnId;
+
+  if (!samePrev && sameNext) return "┌─";
+  if (samePrev && sameNext) return "│ ";
+  if (samePrev && !sameNext) return "└─";
+  return "  ";
+}
+
+function formatCtxGroupLine(
+  timeline: TimelineEntry[],
+  index: number
+): string | null {
+  const entry = timeline[index];
+  if ((entry.ctxSpikeTokens ?? 0) <= 0) return null;
+
+  const turnId = entry.assistantTurnId;
+  if (!turnId) {
+    return chalk.yellow(`ctx+${entry.ctxSpikeTokens!.toLocaleString()}`);
+  }
+
+  const next = timeline[index + 1];
+  const isGroupEnd = next?.assistantTurnId !== turnId;
+  if (!isGroupEnd) return null;
+
+  const size = countContiguousCtxGroupSize(timeline, index, turnId);
+  const sharedText = size > 1 ? chalk.gray(` (shared by ${size} lines)`) : "";
+  return chalk.yellow(`ctx+${entry.ctxSpikeTokens!.toLocaleString()}`) + sharedText;
+}
+
+function countContiguousCtxGroupSize(
+  timeline: TimelineEntry[],
+  endIndex: number,
+  turnId: string
+): number {
+  let count = 0;
+  for (let i = endIndex; i >= 0; i--) {
+    const entry = timeline[i];
+    if (entry.assistantTurnId !== turnId || (entry.ctxSpikeTokens ?? 0) <= 0) {
+      break;
+    }
+    count++;
+  }
+  return count;
 }
