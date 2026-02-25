@@ -6,7 +6,7 @@
     "cca": "./src/cli.ts"
   },
   "scripts": {
-    "start": "tsx src/cli.ts",
+    "start": "tsx src/cli.ts web",
     "test": "vitest run",
     "test:watch": "vitest"
   },

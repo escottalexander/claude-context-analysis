@@ -28,6 +28,7 @@ import {
 import { renderNetworkFrame } from "./output/network-tui.js";
 import { buildAnalysisResult, writeJsonSummary } from "./output/json-summary.js";
 import { startHookServer } from "./hooks/hook-server.js";
+import { startWebServer } from "./web/server.js";
 
 const program = new Command();
 
@@ -212,6 +213,34 @@ program
   .action(async (opts: { port: string }) => {
     const port = parseInt(opts.port, 10);
     startHookServer(port);
+  });
+
+program
+  .command("web")
+  .description("Launch browser-based session explorer")
+  .argument("[path]", "Path to the JSONL session file")
+  .action(async (filePath?: string) => {
+    let tree: SessionTree | undefined;
+    let events: Awaited<ReturnType<typeof readSessionBundle>> | undefined;
+    if (filePath) {
+      events = await readSessionBundle(filePath);
+      if (events.length === 0) {
+        console.error(chalk.red("No events found in file."));
+        process.exit(1);
+      }
+      tree = new SessionTree(events);
+    }
+    const web = await startWebServer({
+      tree,
+      events,
+      port: 3457,
+      initialSessionPath: filePath,
+    });
+    console.log(
+      chalk.bold(`Web explorer running at `) +
+        chalk.cyan(web.baseUrl) +
+        chalk.gray(" (Ctrl+C to stop)")
+    );
   });
 
 program

@@ -16,7 +16,7 @@ describe("network types", () => {
 });
 
 describe("analyzeNetworkTab", () => {
-  it("partitions requests by agent scope and computes latency/context", () => {
+  it("partitions requests by agent scope and computes time/context", () => {
     const events: SessionEvent[] = [
       {
         type: "assistant",
@@ -123,7 +123,83 @@ describe("analyzeNetworkTab", () => {
 
     const result = analyzeNetworkTab(new SessionTree(events));
     expect(result.scopes.map((s) => s.id)).toEqual(["main", "agent_1"]);
-    expect(result.scopes[0].requests[0].latencyMs).toBe(1200);
+    expect(result.scopes[0].requests[0].timeMs).toBe(1200);
     expect(result.scopes[0].requests[0].ctxSpikeTokens).toBe(5000);
+  });
+
+  it("links Task calls to their subagent session id", () => {
+    const events: SessionEvent[] = [
+      {
+        type: "assistant",
+        uuid: "a_task",
+        parentUuid: "u1",
+        sessionId: "s1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        requestId: "req_task",
+        isSidechain: false,
+        cwd: "/tmp",
+        message: {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool_task",
+              name: "Task",
+              input: { description: "Investigate" },
+            },
+          ],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: {
+            input_tokens: 10,
+            cache_creation_input_tokens: 20,
+            cache_read_input_tokens: 0,
+            output_tokens: 5,
+          },
+        },
+      },
+      {
+        type: "progress",
+        uuid: "p_agent",
+        parentUuid: "a_task",
+        parentToolUseID: "tool_task",
+        toolUseID: "agent_msg_1",
+        sessionId: "s1",
+        timestamp: "2026-01-01T00:00:00.100Z",
+        isSidechain: false,
+        data: {
+          type: "agent_progress",
+          agentId: "agent_abc123",
+        },
+      } as SessionEvent,
+      {
+        type: "user",
+        uuid: "u_task_result",
+        parentUuid: "a_task",
+        sessionId: "s1",
+        timestamp: "2026-01-01T00:00:00.900Z",
+        isSidechain: false,
+        cwd: "/tmp",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool_task",
+              content: "done",
+              is_error: false,
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = analyzeNetworkTab(new SessionTree(events));
+    expect(result.scopes).toHaveLength(1);
+    expect(result.scopes[0].id).toBe("main");
+    expect(result.scopes[0].requests).toHaveLength(1);
+    expect(result.scopes[0].requests[0].toolName).toBe("Task");
+    expect(result.scopes[0].requests[0].linkedSubagentId).toBe("agent_abc123");
   });
 });

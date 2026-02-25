@@ -22,7 +22,7 @@ describe("cli network command", () => {
       encoding: "utf8",
     });
     expect(output).toContain("Network View");
-    expect(output).toContain("Latency");
+    expect(output).toContain("Time");
     expect(output).toContain("Ctx+");
   });
 });

@@ -14,9 +14,10 @@ describe("renderNetworkFrame", () => {
             toolUseId: "tool_1",
             toolName: "Read",
             scopeId: "main",
+            linkedSubagentId: null,
             startTimestamp: "2026-01-01T00:00:00.000Z",
             endTimestamp: "2026-01-01T00:00:01.200Z",
-            latencyMs: 1200,
+            timeMs: 1200,
             ctxSpikeTokens: 5000,
             isError: false,
             toolInput: { file_path: "/tmp/main.ts" },
@@ -38,8 +39,9 @@ describe("renderNetworkFrame", () => {
 
     expect(output).toContain("main");
     expect(output).toContain("agent_1");
-    expect(output).toContain("Latency");
+    expect(output).toContain("Time");
     expect(output).toContain("Ctx+");
+    expect(output).toContain("Subagent");
   });
 
   it("shows only one scope timeline at a time", () => {
@@ -53,9 +55,10 @@ describe("renderNetworkFrame", () => {
               toolUseId: "tool_main",
               toolName: "Read",
               scopeId: "main",
+              linkedSubagentId: null,
               startTimestamp: "2026-01-01T00:00:00.000Z",
               endTimestamp: "2026-01-01T00:00:01.000Z",
-              latencyMs: 1000,
+              timeMs: 1000,
               ctxSpikeTokens: 100,
               isError: false,
               toolInput: {},
@@ -71,9 +74,10 @@ describe("renderNetworkFrame", () => {
               toolUseId: "tool_agent",
               toolName: "agent_1-only-event",
               scopeId: "agent_1",
+              linkedSubagentId: "agent_1",
               startTimestamp: "2026-01-01T00:00:02.000Z",
               endTimestamp: "2026-01-01T00:00:03.000Z",
-              latencyMs: 1000,
+              timeMs: 1000,
               ctxSpikeTokens: 20,
               isError: false,
               toolInput: {},
@@ -89,7 +93,7 @@ describe("renderNetworkFrame", () => {
     expect(output).not.toContain("agent_1-only-event");
   });
 
-  it("shows '-' when latency is unknown in detail pane", () => {
+  it("shows '-' when time is unknown in detail pane", () => {
     const state = createNetworkState(["main"]);
     state.detailOpen = true;
     const output = renderNetworkFrame({
@@ -102,9 +106,10 @@ describe("renderNetworkFrame", () => {
               toolUseId: "tool_main",
               toolName: "Read",
               scopeId: "main",
+              linkedSubagentId: null,
               startTimestamp: "2026-01-01T00:00:00.000Z",
               endTimestamp: null,
-              latencyMs: null,
+              timeMs: null,
               ctxSpikeTokens: 0,
               isError: false,
               toolInput: {},
@@ -116,7 +121,8 @@ describe("renderNetworkFrame", () => {
       state,
     });
 
-    expect(output).toContain("Latency: -");
-    expect(output).not.toContain("Latency: -ms");
+    expect(output).toContain("Time: -");
+    expect(output).not.toContain("Time: -ms");
+    expect(output).toContain("Subagent session: -");
   });
 });

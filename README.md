@@ -11,13 +11,16 @@ npm install
 ### Typical Workflow
 
 ```bash
-# 1. Pick a session interactively and analyze it
-npx tsx src/cli.ts analyze
+# 1. Start the web explorer (default)
+npm run start
 
-# 2. Or pass a path directly
+# 2. Start web explorer for a specific session path
+npm run start -- ~/.claude/projects/<project>/<session-id>.jsonl
+
+# 3. Or run terminal analyze mode directly
 npx tsx src/cli.ts analyze ~/.claude/projects/<project>/<session-id>.jsonl
 
-# 3. Export as JSON for further processing
+# 4. Export as JSON for further processing
 npx tsx src/cli.ts analyze --json
 ```
 
@@ -62,9 +65,31 @@ npx tsx src/cli.ts analyze <path> --json
 npx tsx src/cli.ts analyze <path> --output analysis.json
 ```
 
+### `web` - Browser Session Explorer (Default Start Mode)
+
+`npm run start` now launches the browser-based explorer by default (`tsx src/cli.ts web`).
+
+The web experience is inspired by Chrome DevTools' Network tab:
+
+- filter by tool type, status, search text, and minimum time
+- switch agent scopes (`main` and sidechains) without mixing timelines
+- click any row to drill into full request details (input, result, time, context spike)
+
+```bash
+# Default start (web mode)
+npm run start
+
+# Default start with a specific session path
+npm run start -- <path>
+
+# Explicit web mode
+npx tsx src/cli.ts web
+npx tsx src/cli.ts web <path>
+```
+
 ### `network` - Interactive Agent-Scoped Network View
 
-Shows tool requests as an agent-scoped timeline. Only one scope is active at a time (`main` or sidechain agent), with per-request `Latency` and `Ctx+` columns plus an optional detail pane.
+Shows tool requests as an agent-scoped timeline. Only one scope is active at a time (`main` or sidechain agent), with per-request `Time` and `Ctx+` columns plus an optional detail pane.
 
 ```bash
 # Interactive session picker

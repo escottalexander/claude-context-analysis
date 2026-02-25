@@ -7,6 +7,9 @@ interface NetworkTabResult {
 
 export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
   const assistantsByToolUseId = indexAssistantByToolUseId(tree.getAssistantEvents());
+  const taskSubagentByToolUseId = indexTaskSubagentByToolUseId(
+    tree.getChronologicalEvents()
+  );
   const scopes = new Map<string, NetworkAgentScope>();
 
   for (const pair of tree.getToolPairs()) {
@@ -22,9 +25,13 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
       toolUseId: pair.toolUse.id,
       toolName: pair.toolUse.name,
       scopeId,
+      linkedSubagentId:
+        pair.toolUse.name === "Task"
+          ? (taskSubagentByToolUseId.get(pair.toolUse.id) ?? null)
+          : null,
       startTimestamp: pair.assistantTimestamp,
       endTimestamp: pair.resultTimestamp,
-      latencyMs: computeLatencyMs(pair.assistantTimestamp, pair.resultTimestamp),
+      timeMs: computeTimeMs(pair.assistantTimestamp, pair.resultTimestamp),
       ctxSpikeTokens: assistant?.message.usage.cache_creation_input_tokens ?? 0,
       isError: pair.toolResult?.is_error ?? false,
       toolInput: pair.toolUse.input,
@@ -62,14 +69,55 @@ function indexAssistantByToolUseId(
   return map;
 }
 
+function indexTaskSubagentByToolUseId(
+  events: ReturnType<SessionTree["getChronologicalEvents"]>
+): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const event of events) {
+    if (event.type === "progress") {
+      const toolUseId = event.parentToolUseID ?? event.toolUseID;
+      const data = event.data as Record<string, unknown>;
+      const agentId = data.agentId;
+      if (
+        toolUseId &&
+        typeof toolUseId === "string" &&
+        typeof agentId === "string" &&
+        !map.has(toolUseId)
+      ) {
+        map.set(toolUseId, agentId);
+      }
+      continue;
+    }
+
+    if (event.type === "user") {
+      if (!Array.isArray(event.message.content)) continue;
+      const toolUseResult = event.toolUseResult as Record<string, unknown> | undefined;
+      const agentId = toolUseResult?.agentId;
+      if (typeof agentId !== "string") continue;
+      for (const block of event.message.content) {
+        if (
+          block.type === "tool_result" &&
+          typeof block.tool_use_id === "string" &&
+          !map.has(block.tool_use_id)
+        ) {
+          map.set(block.tool_use_id, agentId);
+        }
+      }
+    }
+  }
+
+  return map;
+}
+
 function getScopeId(event: AssistantEvent): string {
   return event.isSidechain ? (event.agentId ?? "unknown") : "main";
 }
 
-function computeLatencyMs(start: string, end: string | null): number | null {
+function computeTimeMs(start: string, end: string | null): number | null {
   if (!end) return null;
-  const latency = new Date(end).getTime() - new Date(start).getTime();
-  return latency >= 0 ? latency : null;
+  const time = new Date(end).getTime() - new Date(start).getTime();
+  return time >= 0 ? time : null;
 }
 
 function normalizeResultContent(content: unknown): string {

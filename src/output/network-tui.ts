@@ -18,8 +18,8 @@ export function renderNetworkFrame(model: NetworkRenderModel): string {
   const lines: string[] = [];
   lines.push(renderScopeTabs(model.scopes, model.state.activeScopeId));
   lines.push("");
-  lines.push("Tool          Latency   Ctx+   Status");
-  lines.push("--------------------------------------");
+  lines.push("Tool          Time   Ctx+   Status  Subagent");
+  lines.push("------------------------------------------------");
 
   const rows = activeScope.requests;
   if (rows.length === 0) {
@@ -28,11 +28,12 @@ export function renderNetworkFrame(model: NetworkRenderModel): string {
     const selectedIndex = model.state.selectionByScope[activeScope.id] ?? 0;
     rows.forEach((request, index) => {
       const marker = index === selectedIndex ? ">" : " ";
-      const latency = request.latencyMs === null ? "-" : `${request.latencyMs}ms`;
+      const time = request.timeMs === null ? "-" : `${request.timeMs}ms`;
       const ctx = request.ctxSpikeTokens.toLocaleString();
       const status = request.isError ? "error" : "ok";
+      const subagent = request.linkedSubagentId ?? "-";
       lines.push(
-        `${marker} ${pad(request.toolName, 12)} ${pad(latency, 8)} ${pad(ctx, 6)} ${status}`
+        `${marker} ${pad(request.toolName, 12)} ${pad(time, 8)} ${pad(ctx, 6)} ${pad(status, 6)} ${subagent}`
       );
     });
   }
@@ -47,8 +48,9 @@ export function renderNetworkFrame(model: NetworkRenderModel): string {
     lines.push(`Use ID: ${selected.toolUseId}`);
     lines.push(`Started: ${selected.startTimestamp}`);
     lines.push(`Ended: ${selected.endTimestamp ?? "-"}`);
-    lines.push(`Latency: ${selected.latencyMs === null ? "-" : `${selected.latencyMs}ms`}`);
+    lines.push(`Time: ${selected.timeMs === null ? "-" : `${selected.timeMs}ms`}`);
     lines.push(`Ctx+: ${selected.ctxSpikeTokens.toLocaleString()}`);
+    lines.push(`Subagent session: ${selected.linkedSubagentId ?? "-"}`);
     lines.push(`Input: ${safeJson(selected.toolInput)}`);
     lines.push(`Result: ${selected.toolResultContent ?? ""}`);
   }

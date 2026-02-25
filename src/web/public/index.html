@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code Session Explorer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>Claude Code Session Explorer</h1>
+      </div>
+      <div class="topbar-nav">
+        <button
+          id="session-modal-trigger"
+          class="session-trigger-btn"
+          aria-haspopup="dialog"
+          aria-controls="session-modal"
+          title="Choose session"
+        >
+          <span class="session-trigger-label">Session</span>
+          <span id="session-current-label" class="session-current-label">Loading...</span>
+        </button>
+      </div>
+    </header>
+    <main>
+      <div id="app">Loading...</div>
+    </main>
+    <div id="session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="session-modal-title">
+      <div id="session-modal-backdrop" class="modal-backdrop"></div>
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2 id="session-modal-title">Choose Session</h2>
+          <button id="session-modal-close" class="modal-close-btn" aria-label="Close session chooser">×</button>
+        </div>
+        <div class="modal-content">
+          <div id="session-modal-list" class="session-modal-list"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

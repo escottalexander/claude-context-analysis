@@ -231,9 +231,10 @@ export interface NetworkRequestEntry {
   toolUseId: string;
   toolName: string;
   scopeId: string;
+  linkedSubagentId: string | null;
   startTimestamp: string;
   endTimestamp: string | null;
-  latencyMs: number | null;
+  timeMs: number | null;
   ctxSpikeTokens: number;
   isError: boolean;
   toolInput: Record<string, unknown>;
