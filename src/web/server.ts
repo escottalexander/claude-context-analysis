@@ -38,19 +38,22 @@ export async function startWebServer(
     initialSessionPath,
   } = options;
 
-  const catalog = await discoverSessions(sessionsRootDir);
-  const cache = new Map<string, Awaited<ReturnType<typeof analyzeSessionPath>>>();
+  let catalog = await discoverSessions(sessionsRootDir);
+  let catalogTimestamp = Date.now();
+  const CATALOG_TTL_MS = 5000;
+  const cache = new Map<string, { mtimeMs: number; analysis: Awaited<ReturnType<typeof analyzeSessionPath>> }>();
 
   if (tree && events && initialSessionPath) {
     const key = sessionKeyFromPath(initialSessionPath);
-    cache.set(key, analyzeSessionFromTree(tree, events, initialSessionPath));
+    const fileStat = await stat(initialSessionPath).catch(() => null);
+    cache.set(key, { mtimeMs: fileStat?.mtimeMs ?? 0, analysis: analyzeSessionFromTree(tree, events, initialSessionPath) });
     if (!catalog.some((entry) => entry.sessionKey === key)) {
       catalog.unshift(sessionEntryFromPath(initialSessionPath, key));
     }
   } else if (tree && events && !initialSessionPath) {
     const syntheticPath = "in-memory-session.jsonl";
     const key = sessionKeyFromPath(syntheticPath);
-    cache.set(key, analyzeSessionFromTree(tree, events, syntheticPath));
+    cache.set(key, { mtimeMs: 0, analysis: analyzeSessionFromTree(tree, events, syntheticPath) });
     catalog.unshift(sessionEntryFromPath(syntheticPath, key));
   } else if (initialSessionPath) {
     const key = sessionKeyFromPath(initialSessionPath);
@@ -69,6 +72,10 @@ export async function startWebServer(
     }
 
     if (url.pathname === "/api/sessions") {
+      if (Date.now() - catalogTimestamp > CATALOG_TTL_MS) {
+        catalog = await discoverSessions(sessionsRootDir);
+        catalogTimestamp = Date.now();
+      }
       return json(res, 200, catalog);
     }
 
@@ -248,15 +255,24 @@ function resolveSessionKey(
 
 async function getAnalysis(
   key: string,
-  cache: Map<string, Awaited<ReturnType<typeof analyzeSessionPath>>>,
+  cache: Map<string, { mtimeMs: number; analysis: Awaited<ReturnType<typeof analyzeSessionPath>> }>,
   catalog: Array<{ sessionKey: string; fullPath: string }>
 ) {
-  const existing = cache.get(key);
-  if (existing) return existing;
   const entry = catalog.find((item) => item.sessionKey === key);
   if (!entry) return null;
+  const existing = cache.get(key);
+  if (existing) {
+    const fileStat = await stat(entry.fullPath).catch(() => null);
+    if (fileStat && fileStat.mtimeMs > existing.mtimeMs) {
+      const analyzed = await analyzeSessionPath(entry.fullPath);
+      cache.set(key, { mtimeMs: fileStat.mtimeMs, analysis: analyzed });
+      return analyzed;
+    }
+    return existing.analysis;
+  }
+  const fileStat = await stat(entry.fullPath).catch(() => null);
   const analyzed = await analyzeSessionPath(entry.fullPath);
-  cache.set(key, analyzed);
+  cache.set(key, { mtimeMs: fileStat?.mtimeMs ?? 0, analysis: analyzed });
   return analyzed;
 }
 

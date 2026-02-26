@@ -17,6 +17,9 @@ let currentSessions = [];
 
 let navBackBtn = null;
 let navForwardBtn = null;
+let sessionPollInterval = null;
+let sessionListPollInterval = null;
+let lastTotalEvents = null;
 const sessionModalTrigger = document.getElementById("session-modal-trigger");
 const sessionCurrentLabel = document.getElementById("session-current-label");
 const sessionModal = document.getElementById("session-modal");
@@ -240,11 +243,61 @@ async function loadSessionData(sessionKey) {
   };
 }
 
+function stopPolling() {
+  if (sessionPollInterval) {
+    clearInterval(sessionPollInterval);
+    sessionPollInterval = null;
+  }
+  if (sessionListPollInterval) {
+    clearInterval(sessionListPollInterval);
+    sessionListPollInterval = null;
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  lastTotalEvents = currentData?.session?.totalEvents ?? null;
+
+  sessionPollInterval = setInterval(async () => {
+    if (!state.sessionKey) return;
+    try {
+      const data = await loadSessionData(state.sessionKey);
+      if (data.session.totalEvents !== lastTotalEvents) {
+        lastTotalEvents = data.session.totalEvents;
+        const rowsPanel = app.querySelector(".rows-panel");
+        const scrollTop = rowsPanel ? rowsPanel.scrollTop : 0;
+        render(data, currentSessions);
+        const newRowsPanel = app.querySelector(".rows-panel");
+        if (newRowsPanel) newRowsPanel.scrollTop = scrollTop;
+      }
+    } catch {
+      // Silently ignore poll failures
+    }
+  }, 1000);
+
+  sessionListPollInterval = setInterval(async () => {
+    try {
+      const res = await fetch("/api/sessions");
+      if (res.ok) {
+        const sessions = await res.json();
+        if (JSON.stringify(sessions) !== JSON.stringify(currentSessions)) {
+          currentSessions = sessions;
+          updateSessionTriggerLabel(sessions);
+          renderSessionModalList(sessions);
+        }
+      }
+    } catch {
+      // Silently ignore poll failures
+    }
+  }, 5000);
+}
+
 async function switchSession(nextKey, sessions = currentSessions) {
   if (!nextKey || nextKey === state.sessionKey) {
     closeSessionModal();
     return;
   }
+  stopPolling();
   state.sessionKey = nextKey;
   state.activeScopeId = "main";
   state.selectedRowId = null;
@@ -259,6 +312,7 @@ async function switchSession(nextKey, sessions = currentSessions) {
     const nextData = await loadSessionData(nextKey);
     state.activeScopeId = nextData.network.scopes[0]?.id ?? "main";
     render(nextData, sessions);
+    startPolling();
   } catch {
     app.textContent = "Failed to switch session.";
   }
@@ -535,7 +589,16 @@ async function boot() {
   const data = await loadSessionData(state.sessionKey);
   state.activeScopeId = data.network.scopes[0]?.id ?? "main";
   render(data, sessions);
+  startPolling();
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    startPolling();
+  }
+});
 
 boot().catch(() => {
   app.textContent = "Failed to initialize app.";
