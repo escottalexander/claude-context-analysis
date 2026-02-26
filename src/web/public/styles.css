@@ -538,6 +538,24 @@ tbody td:nth-child(5) {
   border: 1px solid #6a5a2a;
 }
 
+.spawns-subagent-badge {
+  background: #7c2de8;
+  color: #f0e0ff;
+  border: 1px solid #a050ff;
+}
+
+/* Duplicate request rows — same API call, streamed as multiple events */
+.row.duplicate-request {
+  border-left: 2px solid #555;
+  opacity: 0.7;
+}
+
+.dup-token {
+  color: #666;
+  font-size: 11px;
+  cursor: help;
+}
+
 .row-summary {
   color: #9d9d9d;
   font-size: 11px;

@@ -405,21 +405,28 @@ function ctxText(tokens) {
 
 function ctxTotalText(turn) {
   if (!turn) return "-";
+  if (turn.totalTokens === 0) return "0";
   return ctxText(turn.totalTokens);
 }
 
 
-function renderEventRow(evt, isSelected, contextTurn) {
+function renderEventRow(evt, isSelected, contextTurn, isDuplicateRequest) {
   const kindClass = KIND_COLORS[evt.kind] || "";
   const errorClass = evt.isError ? "error" : "";
   const selectedClass = isSelected ? "selected" : "";
+  const dupClass = isDuplicateRequest ? "duplicate-request" : "";
   const ctxPercent = ctxTotalText(contextTurn);
 
+  const subagentBadge = evt.linkedSubagentId
+    ? ' <span class="kind-badge spawns-subagent-badge">Spawns Subagent</span>'
+    : "";
+
   if (evt.kind === "tool_use") {
-    return `<tr class="row ${errorClass} ${selectedClass} ${kindClass}" data-row="${evt.id}">
-      <td><span class="kind-badge kind-badge-tool_use">Tool</span> <span class="row-summary">${escapeHtml(evt.toolName)}</span></td>
+    const ctxVal = isDuplicateRequest ? '<span class="dup-token" title="Same API request as above">↑</span>' : ctxText(evt.ctxSpikeTokens);
+    return `<tr class="row ${errorClass} ${selectedClass} ${kindClass} ${dupClass}" data-row="${evt.id}">
+      <td><span class="kind-badge kind-badge-tool_use">Tool</span>${subagentBadge} <span class="row-summary">${escapeHtml(evt.toolName)}</span></td>
       <td>${timeText(evt.timeMs)}</td>
-      <td>${ctxText(evt.ctxSpikeTokens)}</td>
+      <td>${ctxVal}</td>
       <td>${ctxPercent}</td>
       <td>${new Date(evt.timestamp).toLocaleTimeString()}</td>
     </tr>`;
@@ -428,10 +435,11 @@ function renderEventRow(evt, isSelected, contextTurn) {
   const kindLabel = KIND_LABELS[evt.kind] || evt.kind;
   const cacheTokens = evt.cacheCreationTokens ?? 0;
   const evtTime = evt.durationMs ? `${evt.durationMs}ms` : "-";
-  return `<tr class="row ${selectedClass} ${kindClass}" data-row="${evt.id}">
-    <td><span class="kind-badge kind-badge-${evt.kind}">${escapeHtml(kindLabel)}</span> <span class="row-summary">${escapeHtml(evt.summary)}</span></td>
+  const ctxVal = isDuplicateRequest ? '<span class="dup-token" title="Same API request as above">↑</span>' : ctxText(cacheTokens);
+  return `<tr class="row ${selectedClass} ${kindClass} ${dupClass}" data-row="${evt.id}">
+    <td><span class="kind-badge kind-badge-${evt.kind}">${escapeHtml(kindLabel)}</span>${subagentBadge} <span class="row-summary">${escapeHtml(evt.summary)}</span></td>
     <td>${evtTime}</td>
-    <td>${ctxText(cacheTokens)}</td>
+    <td>${ctxVal}</td>
     <td>${ctxPercent}</td>
     <td>${new Date(evt.timestamp).toLocaleTimeString()}</td>
   </tr>`;
@@ -507,6 +515,9 @@ function renderDetailPanel(evt, contextTurn) {
       ${evt.compactTrigger ? `<p><strong>Trigger:</strong> ${escapeHtml(evt.compactTrigger)}</p>` : ""}
       ${evt.preTokens ? `<p><strong>Pre-compaction tokens:</strong> ${evt.preTokens.toLocaleString()}</p>` : ""}
       ${contextTurn ? `<p><strong>Post-compaction context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${evt.linkedSubagentId
+        ? `<p><strong>Compaction subagent:</strong> <button class="subagent-link" data-jump-subagent="${evt.linkedSubagentId}">${evt.linkedSubagentId}</button></p>`
+        : ""}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }
@@ -649,11 +660,17 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
               ${
                 visibleEvents.length === 0
                   ? `<tr><td colspan="5" class="empty">No matching events</td></tr>`
-                  : visibleEvents
-                      .map(
-                        (row) => renderEventRow(row, selectedEvent?.id === row.id, getContextTurn(row.timestamp))
-                      )
-                      .join("")
+                  : (() => {
+                      const seenReqIds = new Set();
+                      return visibleEvents
+                        .map((row) => {
+                          const reqId = row.requestId;
+                          const isDup = reqId ? seenReqIds.has(reqId) : false;
+                          if (reqId) seenReqIds.add(reqId);
+                          return renderEventRow(row, selectedEvent?.id === row.id, getContextTurn(row.timestamp), isDup);
+                        })
+                        .join("");
+                    })()
               }
             </tbody>
           </table>

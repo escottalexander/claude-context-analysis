@@ -114,6 +114,7 @@ export interface SystemEvent {
   type: "system";
   uuid: string;
   parentUuid: string | null;
+  logicalParentUuid?: string | null;
   sessionId?: string;
   timestamp: string;
   subtype?: string;
@@ -284,6 +285,8 @@ export interface NetworkTimelineEvent {
   outputTokens?: number;
   cacheCreationTokens?: number;
   cacheReadTokens?: number;
+  // Streaming: groups events from the same API request
+  requestId?: string;
   // System-specific
   subtype?: string;
   durationMs?: number;

@@ -17,9 +17,9 @@ interface NetworkTabResult {
 
 export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
   const assistantsByToolUseId = indexAssistantByToolUseId(tree.getAssistantEvents());
-  const taskSubagentByToolUseId = indexTaskSubagentByToolUseId(
-    tree.getChronologicalEvents()
-  );
+  const allEvents = tree.getChronologicalEvents();
+  const taskSubagentByToolUseId = indexTaskSubagentByToolUseId(allEvents);
+  const uuidToAgentId = indexAgentIdByUuid(allEvents);
   const scopes = new Map<string, NetworkAgentScope>();
 
   const ensureScope = (scopeId: string): NetworkAgentScope => {
@@ -71,7 +71,7 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
   // Build unified event timeline from ALL chronological events
   let eventCounter = 0;
   for (const event of tree.getChronologicalEvents()) {
-    const timelineEvents = buildTimelineEvents(event, eventCounter, taskSubagentByToolUseId, toolUseScopeMap);
+    const timelineEvents = buildTimelineEvents(event, eventCounter, taskSubagentByToolUseId, toolUseScopeMap, uuidToAgentId);
     for (const te of timelineEvents) {
       ensureScope(te.scopeId).events.push(te);
     }
@@ -102,13 +102,15 @@ function buildTimelineEvents(
   event: SessionEvent,
   counter: number,
   taskSubagentMap: Map<string, string>,
-  toolUseScopeMap: Map<string, string>
+  toolUseScopeMap: Map<string, string>,
+  uuidToAgentId: Map<string, string>
 ): NetworkTimelineEvent[] {
   const results: NetworkTimelineEvent[] = [];
 
   if (event.type === "assistant") {
     const ae = event as AssistantEvent;
     const scopeId = getScopeId(ae);
+    const reqId = ae.requestId ?? ae.uuid;
     for (const block of ae.message.content) {
       if (block.type === "thinking") {
         const preview = block.thinking.slice(0, 200);
@@ -123,6 +125,7 @@ function buildTimelineEvents(
           outputTokens: ae.message.usage.output_tokens,
           cacheCreationTokens: ae.message.usage.cache_creation_input_tokens,
           cacheReadTokens: ae.message.usage.cache_read_input_tokens,
+          requestId: reqId,
         });
       } else if (block.type === "text") {
         const preview = block.text.slice(0, 200);
@@ -137,6 +140,7 @@ function buildTimelineEvents(
           outputTokens: ae.message.usage.output_tokens,
           cacheCreationTokens: ae.message.usage.cache_creation_input_tokens,
           cacheReadTokens: ae.message.usage.cache_read_input_tokens,
+          requestId: reqId,
         });
       } else if (block.type === "tool_use") {
         const linkedSubagentId =
@@ -157,6 +161,7 @@ function buildTimelineEvents(
           isError: false,
           toolInput: block.input,
           toolResultContent: null,
+          requestId: reqId,
         });
       }
     }
@@ -227,6 +232,11 @@ function buildTimelineEvents(
     if (subtype === "compact_boundary") {
       const preTokens = se.compactMetadata?.preTokens ?? undefined;
       const trigger = se.compactMetadata?.trigger ?? undefined;
+      // Resolve compaction subagent via logicalParentUuid → agentId
+      const logicalParent = se.logicalParentUuid;
+      const linkedSubagentId = logicalParent
+        ? (uuidToAgentId.get(logicalParent) ?? null)
+        : null;
       results.push({
         id: `compaction-${se.uuid}-${counter}`,
         kind: "compaction",
@@ -237,6 +247,7 @@ function buildTimelineEvents(
         subtype,
         compactTrigger: trigger,
         preTokens,
+        linkedSubagentId,
       });
     } else {
       results.push({
@@ -331,6 +342,25 @@ function indexTaskSubagentByToolUseId(
     }
   }
 
+  return map;
+}
+
+/**
+ * Build a map from event uuid → agentId for all sidechain events.
+ * Used to resolve logicalParentUuid on compact_boundary events
+ * back to the compaction subagent that produced them.
+ */
+function indexAgentIdByUuid(
+  events: ReturnType<SessionTree["getChronologicalEvents"]>
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const event of events) {
+    if (!("isSidechain" in event) || !(event as any).isSidechain) continue;
+    const agentId = (event as any).agentId;
+    if (typeof agentId === "string" && "uuid" in event) {
+      map.set((event as any).uuid, agentId);
+    }
+  }
   return map;
 }
 
