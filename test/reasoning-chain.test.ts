@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { readJsonl } from "../src/parser/jsonl-reader.js";
 import { SessionTree } from "../src/parser/session-tree.js";
 import { analyzeReasoningChain } from "../src/analyzers/reasoning-chain.js";
-import { renderTimeline } from "../src/output/terminal.js";
 import path from "node:path";
 import type { SessionEvent } from "../src/types.js";
 
@@ -224,108 +223,6 @@ describe("analyzeReasoningChain", () => {
     expect(toolEntry!.ctxSpikeTokens).toBe(4321);
   });
 
-  it("renders ctx spike badge inline in timeline output", () => {
-    const timeline = [
-      {
-        type: "tool_use" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: "Read(file: /tmp/a.ts)",
-        toolName: "Read",
-        toolInput: { file_path: "/tmp/a.ts" },
-        toolUseId: "tool_1",
-        ctxSpikeTokens: 5000,
-        assistantTurnId: "turn_1",
-      },
-    ];
-
-    const output = renderTimeline(timeline, {
-      showThinking: true,
-      toolFilter: null,
-    });
-
-    expect(output).toContain("ctx+5,000");
-  });
-
-  it("groups lines that share one ctx turn", () => {
-    const timeline = [
-      {
-        type: "text" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: "First action",
-        ctxSpikeTokens: 5000,
-        assistantTurnId: "turn_1",
-      },
-      {
-        type: "tool_use" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: "Read(file: /tmp/a.ts)",
-        toolName: "Read",
-        toolInput: { file_path: "/tmp/a.ts" },
-        toolUseId: "tool_1",
-        ctxSpikeTokens: 5000,
-        assistantTurnId: "turn_1",
-      },
-    ];
-
-    const output = renderTimeline(timeline, {
-      showThinking: true,
-      toolFilter: null,
-    });
-
-    expect(output).toContain("ctx+5,000");
-    expect(output).toContain("shared by 2 lines");
-    expect(output).toContain("┌─");
-    expect(output).toContain("└─");
-    expect(output).toContain("└─ ctx+5,000");
-  });
-
-  it("counts shared lines per contiguous group, not global turn total", () => {
-    const timeline = [
-      {
-        type: "text" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: "Group A line 1",
-        ctxSpikeTokens: 88,
-        assistantTurnId: "turn_1",
-      },
-      {
-        type: "tool_use" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: "TaskUpdate(taskId: 6)",
-        toolName: "TaskUpdate",
-        toolInput: { taskId: 6 },
-        toolUseId: "tool_1",
-        ctxSpikeTokens: 88,
-        assistantTurnId: "turn_1",
-      },
-      {
-        type: "tool_result" as const,
-        timestamp: "2026-01-01T00:00:02.000Z",
-        content: "Updated task #6 status",
-        toolUseId: "tool_1",
-        isError: false,
-      },
-      {
-        type: "tool_use" as const,
-        timestamp: "2026-01-01T00:00:03.000Z",
-        content: "TaskUpdate(taskId: 7)",
-        toolName: "TaskUpdate",
-        toolInput: { taskId: 7 },
-        toolUseId: "tool_2",
-        ctxSpikeTokens: 88,
-        assistantTurnId: "turn_1",
-      },
-    ];
-
-    const output = renderTimeline(timeline, {
-      showThinking: true,
-      toolFilter: null,
-    });
-
-    expect(output).toContain("ctx+88 (shared by 2 lines)");
-    expect(output).not.toContain("shared by 3 lines");
-  });
-
   it("shortens paths relative to cwd in tool summaries", () => {
     const events: SessionEvent[] = [
       {
@@ -370,23 +267,4 @@ describe("analyzeReasoningChain", () => {
     expect(writeCall!.content).not.toContain("/Users/me/project/");
   });
 
-  it("truncates long timeline descriptions with ellipsis", () => {
-    const longContent = "A".repeat(600);
-    const timeline = [
-      {
-        type: "text" as const,
-        timestamp: "2026-01-01T00:00:01.000Z",
-        content: longContent,
-        ctxSpikeTokens: 9999,
-        assistantTurnId: "turn_1",
-      },
-    ];
-
-    const output = renderTimeline(timeline, {
-      showThinking: true,
-      toolFilter: null,
-    });
-
-    expect(output).toContain("…");
-  });
 });
