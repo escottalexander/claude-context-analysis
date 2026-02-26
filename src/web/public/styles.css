@@ -109,6 +109,13 @@ h1 {
   border-color: #0e639c;
 }
 
+.pill.excluded {
+  background: #3a1f1f;
+  border-color: #6a2a2a;
+  color: #9d7070;
+  text-decoration: line-through;
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -380,6 +387,7 @@ tbody td {
   background: #04395e;
 }
 
+
 .detail-panel {
   padding: 10px;
   overflow-y: auto;
@@ -459,15 +467,142 @@ tbody td:nth-child(1) {
 
 thead th:nth-child(2),
 tbody td:nth-child(2) {
-  width: 86px;
+  width: 72px;
 }
 
 thead th:nth-child(3),
 tbody td:nth-child(3) {
-  width: 72px;
+  width: 62px;
 }
 
 thead th:nth-child(4),
 tbody td:nth-child(4) {
-  width: 92px;
+  width: 56px;
+}
+
+thead th:nth-child(5),
+tbody td:nth-child(5) {
+  width: 82px;
+}
+
+/* Event kind badges */
+.kind-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+
+.kind-badge-tool_use {
+  background: #1a3a5c;
+  color: #7ec8f8;
+  border: 1px solid #2a5a8c;
+}
+
+.kind-badge-user_message {
+  background: #1a4a2a;
+  color: #7ee8a0;
+  border: 1px solid #2a6a3a;
+}
+
+.kind-badge-assistant_text {
+  background: #3a2a5c;
+  color: #c8a0f8;
+  border: 1px solid #5a3a8c;
+}
+
+.kind-badge-thinking {
+  background: #4a3a1a;
+  color: #e8c87a;
+  border: 1px solid #6a5a2a;
+}
+
+.kind-badge-hook {
+  background: #1a3a3a;
+  color: #7ae8e8;
+  border: 1px solid #2a5a5a;
+}
+
+.kind-badge-system {
+  background: #3a3a3a;
+  color: #b0b0b0;
+  border: 1px solid #505050;
+}
+
+.kind-badge-compaction {
+  background: #4a3a1a;
+  color: #e8c87a;
+  border: 1px solid #6a5a2a;
+}
+
+.row-summary {
+  color: #9d9d9d;
+  font-size: 11px;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* Kind-based row tinting */
+.row.kind-user {
+  border-left: 3px solid #2a6a3a;
+}
+
+.row.kind-assistant {
+  border-left: 3px solid #5a3a8c;
+}
+
+.row.kind-thinking {
+  border-left: 3px solid #6a5a2a;
+}
+
+.row.kind-hook {
+  border-left: 3px solid #2a5a5a;
+}
+
+.row.kind-system {
+  border-left: 3px solid #505050;
+}
+
+.row.kind-compaction {
+  border-left: 3px solid #6a5a2a;
+  background: #2d2318;
+  color: #e8c87a;
+  font-style: italic;
+}
+
+.row.kind-user:hover {
+  background: #1a2e1e;
+}
+
+.row.kind-assistant:hover {
+  background: #2a1e3a;
+}
+
+.row.kind-thinking:hover {
+  background: #2d2318;
+}
+
+.row.kind-hook:hover {
+  background: #1a2e2e;
+}
+
+.row.kind-system:hover {
+  background: #2a2a2a;
+}
+
+.row.kind-compaction:hover {
+  background: #3a2e1e;
+}
+
+tbody td:first-child {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

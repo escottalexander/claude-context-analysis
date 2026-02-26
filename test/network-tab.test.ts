@@ -196,10 +196,13 @@ describe("analyzeNetworkTab", () => {
     ];
 
     const result = analyzeNetworkTab(new SessionTree(events));
-    expect(result.scopes).toHaveLength(1);
-    expect(result.scopes[0].id).toBe("main");
-    expect(result.scopes[0].requests).toHaveLength(1);
-    expect(result.scopes[0].requests[0].toolName).toBe("Task");
-    expect(result.scopes[0].requests[0].linkedSubagentId).toBe("agent_abc123");
+    const mainScope = result.scopes.find((s) => s.id === "main");
+    expect(mainScope).toBeDefined();
+    expect(mainScope!.requests).toHaveLength(1);
+    expect(mainScope!.requests[0].toolName).toBe("Task");
+    expect(mainScope!.requests[0].linkedSubagentId).toBe("agent_abc123");
+    // agent_progress events are dropped entirely (covered by subagent session files)
+    const allEvents = result.scopes.flatMap((s) => s.events);
+    expect(allEvents.every((e) => e.progressType !== "agent_progress")).toBe(true);
   });
 });

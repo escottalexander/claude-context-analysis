@@ -86,9 +86,9 @@ describe("web ui model", () => {
     expect(appSource).not.toContain("Overview");
     expect(appSource).not.toContain("data-tab=");
     expect(appSource).toContain("data-jump-subagent");
-    expect(appSource).toContain("Total context:");
-    expect(appSource).toContain("Total running time:");
-    expect(appSource).toContain("row.isError ? \"error\" : \"\"");
+    expect(appSource).toContain("Context:");
+    expect(appSource).toContain("Time:");
+    expect(appSource).toContain("evt.isError ? \"error\" : \"\"");
   });
 
   it("uses pane-level scrolling and tighter middle table layout", () => {
@@ -161,9 +161,8 @@ describe("web ui model", () => {
       "index.html"
     );
     const appSource = readFileSync(appJsPath, "utf8");
-    const indexHtml = readFileSync(indexHtmlPath, "utf8");
-    expect(indexHtml).toContain("id=\"nav-back-btn\"");
-    expect(indexHtml).toContain("id=\"nav-forward-btn\"");
+    expect(appSource).toContain("nav-back-btn");
+    expect(appSource).toContain("nav-forward-btn");
     expect(appSource).toContain("historyBackStack");
     expect(appSource).toContain("historyForwardStack");
     expect(appSource).toContain("data-jump-subagent");

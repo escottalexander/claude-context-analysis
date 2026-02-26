@@ -1,10 +1,31 @@
 const app = document.getElementById("app");
 
+const KIND_LABELS = {
+  tool_use: "Tool",
+  user_message: "User",
+  assistant_text: "Assistant",
+  thinking: "Thinking",
+  hook: "Hook",
+  system: "System",
+  compaction: "Compaction",
+};
+
+const KIND_COLORS = {
+  tool_use: "",
+  user_message: "kind-user",
+  assistant_text: "kind-assistant",
+  thinking: "kind-thinking",
+  hook: "kind-hook",
+  system: "kind-system",
+  compaction: "kind-compaction",
+};
+
 const state = {
   activeScopeId: "main",
   selectedRowId: null,
-  selectedTools: new Set(),
-  selectedStatuses: new Set(),
+  selectedTools: new Map(),
+  selectedStatuses: new Map(),
+  selectedKinds: new Map(),
   searchQuery: "",
   minTimeMs: null,
   sessionKey: null,
@@ -12,6 +33,7 @@ const state = {
 
 const historyBackStack = [];
 const historyForwardStack = [];
+let lastSelectedState = null;
 let currentData = null;
 let currentSessions = [];
 
@@ -56,7 +78,7 @@ function normalizeNavigationState(snapshot, data, sessions) {
     data.network.scopes[0];
   const activeScopeId = activeScope?.id ?? fallbackScopeId;
   const selectedRowId =
-    activeScope?.requests.some((row) => row.toolUseId === snapshot.selectedRowId)
+    activeScope?.events.some((evt) => evt.id === snapshot.selectedRowId)
       ? snapshot.selectedRowId
       : null;
   const sessionKey = sessions.some((session) => session.sessionKey === snapshot.sessionKey)
@@ -69,39 +91,48 @@ function normalizeNavigationState(snapshot, data, sessions) {
   };
 }
 
-function applyNavigationState(snapshot, data, sessions) {
+function applyNavigationState(snapshot, data, sessions, { scrollToSelected = false, resetScroll = false } = {}) {
   const next = normalizeNavigationState(snapshot, data, sessions);
+  const scopeChanged = next.activeScopeId !== state.activeScopeId;
   state.activeScopeId = next.activeScopeId;
   state.selectedRowId = next.selectedRowId;
   state.sessionKey = next.sessionKey;
-  render(data, sessions);
+  render(data, sessions, { scrollToSelected, resetScroll: resetScroll || scopeChanged });
 }
 
 function navigateToSnapshot(snapshot, data, sessions) {
-  const current = captureNavigationState();
   const next = normalizeNavigationState(snapshot, data, sessions);
-  if (statesEqual(current, next)) return;
-  historyBackStack.push(current);
+  if (lastSelectedState && statesEqual(lastSelectedState, next)) return;
+  if (lastSelectedState) {
+    historyBackStack.push(lastSelectedState);
+  }
   historyForwardStack.length = 0;
+  lastSelectedState = next.selectedRowId ? next : null;
   applyNavigationState(next, data, sessions);
 }
 
 function handleBackNavigation() {
   if (!currentData || historyBackStack.length === 0) return;
   const previous = historyBackStack.pop();
-  historyForwardStack.push(captureNavigationState());
-  applyNavigationState(previous, currentData, currentSessions);
+  if (lastSelectedState) {
+    historyForwardStack.push(lastSelectedState);
+  }
+  lastSelectedState = previous;
+  applyNavigationState(previous, currentData, currentSessions, { scrollToSelected: true });
 }
 
 function handleForwardNavigation() {
   if (!currentData || historyForwardStack.length === 0) return;
   const next = historyForwardStack.pop();
-  historyBackStack.push(captureNavigationState());
-  applyNavigationState(next, currentData, currentSessions);
+  if (lastSelectedState) {
+    historyBackStack.push(lastSelectedState);
+  }
+  lastSelectedState = next;
+  applyNavigationState(next, currentData, currentSessions, { scrollToSelected: true });
 }
 
 function timeText(timeMs) {
-  return timeMs === null ? "-" : `${timeMs}ms`;
+  return timeMs === null || timeMs === undefined ? "-" : `${timeMs}ms`;
 }
 
 function escapeHtml(value) {
@@ -193,23 +224,54 @@ function detailValue(value) {
   }
 }
 
-function getVisibleRows(activeScope) {
+
+function passesFilter(filterMap, value) {
+  if (filterMap.size === 0) return true;
+  const hasSolo = [...filterMap.values()].some((v) => v === "solo");
+  const s = filterMap.get(value);
+  if (s === "exclude") return false;
+  if (hasSolo && s !== "solo") return false;
+  return true;
+}
+
+function pillState(filterMap, key) {
+  const s = filterMap.get(key);
+  if (s === "solo") return { cls: "active", prefix: "✓ ", title: "Solo — click to exclude" };
+  if (s === "exclude") return { cls: "excluded", prefix: "× ", title: "Excluded — click to include" };
+  return { cls: "", prefix: "", title: "Showing — click to solo" };
+}
+
+function getVisibleEvents(activeScope) {
   if (!activeScope) return [];
-  return activeScope.requests.filter((row) => {
-    if (state.selectedTools.size > 0 && !state.selectedTools.has(row.toolName)) {
+  return activeScope.events.filter((evt) => {
+    // Kind filter
+    if (!passesFilter(state.selectedKinds, evt.kind)) {
       return false;
     }
-    const status = row.isError ? "error" : "ok";
-    if (state.selectedStatuses.size > 0 && !state.selectedStatuses.has(status)) {
-      return false;
+    // Tool name filter (only applies to tool_use events)
+    if (state.selectedTools.size > 0) {
+      if (evt.kind === "tool_use") {
+        if (!passesFilter(state.selectedTools, evt.toolName)) return false;
+      }
     }
-    if (state.minTimeMs !== null && (row.timeMs ?? 0) < state.minTimeMs) {
-      return false;
+    // Status filter (only applies to tool_use events)
+    if (state.selectedStatuses.size > 0) {
+      if (evt.kind === "tool_use") {
+        const status = evt.isError ? "error" : "ok";
+        if (!passesFilter(state.selectedStatuses, status)) return false;
+      }
     }
+    // Min time filter (only applies to tool_use events)
+    if (state.minTimeMs !== null) {
+      if (evt.kind === "tool_use" && (evt.timeMs ?? 0) < state.minTimeMs) {
+        return false;
+      }
+    }
+    // Search filter
     if (state.searchQuery.trim().length > 0) {
       const query = state.searchQuery.trim().toLowerCase();
       const haystack =
-        `${row.toolName} ${row.toolUseId} ${row.linkedSubagentId ?? ""} ${row.toolResultContent ?? ""}`.toLowerCase();
+        `${evt.summary} ${evt.toolName ?? ""} ${evt.toolUseId ?? ""} ${evt.linkedSubagentId ?? ""} ${evt.content ?? ""} ${evt.toolResultContent ?? ""}`.toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     return true;
@@ -303,6 +365,7 @@ async function switchSession(nextKey, sessions = currentSessions) {
   state.selectedRowId = null;
   historyBackStack.length = 0;
   historyForwardStack.length = 0;
+  lastSelectedState = null;
   updateNavigationButtons();
   updateSessionUrl(nextKey);
   updateSessionTriggerLabel(sessions);
@@ -318,22 +381,177 @@ async function switchSession(nextKey, sessions = currentSessions) {
   }
 }
 
-function render(data, sessions) {
+function buildContextLookup(tokenTurns, scopeId) {
+  if (!tokenTurns || tokenTurns.length === 0) return () => null;
+  const scoped = tokenTurns
+    .filter((t) => (t.scopeId ?? "main") === scopeId)
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  if (scoped.length === 0) return () => null;
+  return (timestamp) => {
+    let best = null;
+    for (const turn of scoped) {
+      if (turn.timestamp <= timestamp) best = turn;
+      else break;
+    }
+    return best;
+  };
+}
+
+function ctxText(tokens) {
+  if (tokens == null || tokens === 0) return "-";
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return tokens.toLocaleString();
+}
+
+function ctxTotalText(turn) {
+  if (!turn) return "-";
+  return ctxText(turn.totalTokens);
+}
+
+
+function renderEventRow(evt, isSelected, contextTurn) {
+  const kindClass = KIND_COLORS[evt.kind] || "";
+  const errorClass = evt.isError ? "error" : "";
+  const selectedClass = isSelected ? "selected" : "";
+  const ctxPercent = ctxTotalText(contextTurn);
+
+  if (evt.kind === "tool_use") {
+    return `<tr class="row ${errorClass} ${selectedClass} ${kindClass}" data-row="${evt.id}">
+      <td><span class="kind-badge kind-badge-tool_use">Tool</span> <span class="row-summary">${escapeHtml(evt.toolName)}</span></td>
+      <td>${timeText(evt.timeMs)}</td>
+      <td>${ctxText(evt.ctxSpikeTokens)}</td>
+      <td>${ctxPercent}</td>
+      <td>${new Date(evt.timestamp).toLocaleTimeString()}</td>
+    </tr>`;
+  }
+
+  const kindLabel = KIND_LABELS[evt.kind] || evt.kind;
+  const cacheTokens = evt.cacheCreationTokens ?? 0;
+  const evtTime = evt.durationMs ? `${evt.durationMs}ms` : "-";
+  return `<tr class="row ${selectedClass} ${kindClass}" data-row="${evt.id}">
+    <td><span class="kind-badge kind-badge-${evt.kind}">${escapeHtml(kindLabel)}</span> <span class="row-summary">${escapeHtml(evt.summary)}</span></td>
+    <td>${evtTime}</td>
+    <td>${ctxText(cacheTokens)}</td>
+    <td>${ctxPercent}</td>
+    <td>${new Date(evt.timestamp).toLocaleTimeString()}</td>
+  </tr>`;
+}
+
+function renderDetailPanel(evt, contextTurn) {
+  if (!evt) return `<p class="empty">Click a row to inspect details.</p>`;
+
+  if (evt.kind === "tool_use") {
+    return `
+      <h3>${escapeHtml(evt.toolName)}</h3>
+      <p><strong>Use ID:</strong> ${escapeHtml(evt.toolUseId)}</p>
+      <p><strong>Status:</strong> ${evt.isError ? "error" : "ok"}</p>
+      <p><strong>Time:</strong> ${timeText(evt.timeMs)}</p>
+      <p><strong>Ctx+:</strong> ${(evt.ctxSpikeTokens ?? 0).toLocaleString()}</p>
+      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${evt.linkedSubagentId
+        ? `<p><strong>Spawns subagent:</strong> <button class="subagent-link" data-jump-subagent="${evt.linkedSubagentId}">${evt.linkedSubagentId}</button></p>`
+        : ""}
+      <h4>Input</h4>
+      <pre>${detailValue(evt.toolInput)}</pre>
+      <h4>Result</h4>
+      <pre>${detailValue(evt.toolResultContent)}</pre>`;
+  }
+
+  if (evt.kind === "user_message") {
+    return `
+      <h3>User Message</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  if (evt.kind === "assistant_text") {
+    return `
+      <h3>Assistant Response</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${evt.inputTokens != null ? `<p><strong>Input tokens:</strong> ${evt.inputTokens.toLocaleString()}</p>` : ""}
+      ${evt.outputTokens != null ? `<p><strong>Output tokens:</strong> ${evt.outputTokens.toLocaleString()}</p>` : ""}
+      ${evt.cacheCreationTokens ? `<p><strong>Cache creation:</strong> ${evt.cacheCreationTokens.toLocaleString()}</p>` : ""}
+      ${evt.cacheReadTokens ? `<p><strong>Cache read:</strong> ${evt.cacheReadTokens.toLocaleString()}</p>` : ""}
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  if (evt.kind === "thinking") {
+    return `
+      <h3>Thinking</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${evt.inputTokens != null ? `<p><strong>Input tokens:</strong> ${evt.inputTokens.toLocaleString()}</p>` : ""}
+      ${evt.outputTokens != null ? `<p><strong>Output tokens:</strong> ${evt.outputTokens.toLocaleString()}</p>` : ""}
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  if (evt.kind === "hook") {
+    return `
+      <h3>Hook</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      ${evt.progressType ? `<p><strong>Type:</strong> ${escapeHtml(evt.progressType)}</p>` : ""}
+      ${evt.hookEvent ? `<p><strong>Hook event:</strong> ${escapeHtml(evt.hookEvent)}</p>` : ""}
+      ${evt.hookName ? `<p><strong>Hook name:</strong> ${escapeHtml(evt.hookName)}</p>` : ""}
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  if (evt.kind === "compaction") {
+    return `
+      <h3>Context Compaction</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      ${evt.compactTrigger ? `<p><strong>Trigger:</strong> ${escapeHtml(evt.compactTrigger)}</p>` : ""}
+      ${evt.preTokens ? `<p><strong>Pre-compaction tokens:</strong> ${evt.preTokens.toLocaleString()}</p>` : ""}
+      ${contextTurn ? `<p><strong>Post-compaction context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  if (evt.kind === "system") {
+    return `
+      <h3>System Event</h3>
+      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      ${evt.subtype ? `<p><strong>Subtype:</strong> ${escapeHtml(evt.subtype)}</p>` : ""}
+      ${evt.durationMs ? `<p><strong>Duration:</strong> ${evt.durationMs}ms</p>` : ""}
+      <h4>Content</h4>
+      <pre>${escapeHtml(evt.content)}</pre>`;
+  }
+
+  return `<p class="empty">Unknown event type.</p>`;
+}
+
+function render(data, sessions, { scrollToSelected = false, resetScroll = false } = {}) {
   currentData = data;
   currentSessions = sessions;
+  const prevRowsPanel = app.querySelector(".rows-panel");
+  const prevScrollTop = resetScroll ? 0 : (prevRowsPanel ? prevRowsPanel.scrollTop : 0);
   const activeScope =
     data.network.scopes.find((scope) => scope.id === state.activeScopeId) ??
     data.network.scopes[0];
   if (activeScope) state.activeScopeId = activeScope.id;
-  const visibleRows = getVisibleRows(activeScope);
-  const visibleTotals = sumVisibleMetrics(visibleRows);
-  const selectedRow =
-    visibleRows.find((row) => row.toolUseId === state.selectedRowId) ?? null;
+  const visibleEvents = getVisibleEvents(activeScope);
+  const toolEvents = visibleEvents.filter((e) => e.kind === "tool_use");
+  const visibleTotals = sumVisibleMetrics(toolEvents);
+  const selectedEvent =
+    visibleEvents.find((evt) => evt.id === state.selectedRowId) ?? null;
+  const getContextTurn = buildContextLookup(data.session.tokenTurns, state.activeScopeId);
+
+  // Collect unique tool names from current scope events
+  const scopeToolNames = new Set();
+  if (activeScope) {
+    for (const evt of activeScope.events) {
+      if (evt.kind === "tool_use" && evt.toolName) scopeToolNames.add(evt.toolName);
+    }
+  }
 
   app.innerHTML = `
       <section class="filter-bar">
         <div class="filter-bar-left">
-          <label>Search <input id="filter-search" type="text" value="${state.searchQuery}" placeholder="tool, id, result..." /></label>
+          <label>Search <input id="filter-search" type="text" value="${state.searchQuery}" placeholder="tool, id, content..." /></label>
           <label>Min Time <input id="filter-time" type="text" inputmode="numeric" value="${state.minTimeMs ?? ""}" placeholder="ms" /></label>
         </div>
         <div class="filter-bar-right">
@@ -352,14 +570,32 @@ function render(data, sessions) {
       </section>
       <section class="filter-pills">
         <div class="pill-group">
-          <span>Tools</span>
-          ${data.filters.toolNames
+          <span>Kind</span>
+          ${(data.filters.eventKinds ?? [])
             .map(
-              (tool) => `
-            <button class="pill ${state.selectedTools.has(tool) ? "active" : ""}" data-tool="${tool}">
-              ${tool}
+              (kind) => {
+                const ps = pillState(state.selectedKinds, kind);
+                return `
+            <button class="pill ${ps.cls}" data-kind="${kind}" title="${ps.title}">
+              ${ps.prefix}${KIND_LABELS[kind] || kind}
             </button>
-          `
+          `;
+              }
+            )
+            .join("")}
+        </div>
+        <div class="pill-group">
+          <span>Tools</span>
+          ${[...scopeToolNames].sort()
+            .map(
+              (tool) => {
+                const ps = pillState(state.selectedTools, tool);
+                return `
+            <button class="pill ${ps.cls}" data-tool="${tool}" title="${ps.title}">
+              ${ps.prefix}${tool}
+            </button>
+          `;
+              }
             )
             .join("")}
         </div>
@@ -367,11 +603,14 @@ function render(data, sessions) {
           <span>Status</span>
           ${["ok", "error"]
             .map(
-              (status) => `
-            <button class="pill ${state.selectedStatuses.has(status) ? "active" : ""}" data-status="${status}">
-              ${status}
+              (status) => {
+                const ps = pillState(state.selectedStatuses, status);
+                return `
+            <button class="pill ${ps.cls}" data-status="${status}" title="${ps.title}">
+              ${ps.prefix}${status}
             </button>
-          `
+          `;
+              }
             )
             .join("")}
         </div>
@@ -391,33 +630,28 @@ function render(data, sessions) {
         </aside>
         <div class="rows-panel">
           <div class="rows-summary">
-            <span><strong>Visible tool calls:</strong> ${visibleRows.length}</span>
-            <span><strong>Total context:</strong> ${visibleTotals.contextTokens.toLocaleString()} tokens</span>
-            <span><strong>Total running time:</strong> ${visibleTotals.runningTimeMs.toLocaleString()}ms</span>
+            <span><strong>Events:</strong> ${visibleEvents.length}</span>
+            <span><strong>Tool calls:</strong> ${toolEvents.length}</span>
+            <span><strong>Context:</strong> ${visibleTotals.contextTokens.toLocaleString()} tokens</span>
+            <span><strong>Time:</strong> ${visibleTotals.runningTimeMs.toLocaleString()}ms</span>
           </div>
           <table>
             <thead>
               <tr>
-                <th>Tool</th>
+                <th>Event</th>
                 <th>Time</th>
                 <th>Ctx+</th>
+                <th>Total</th>
                 <th>Start</th>
               </tr>
             </thead>
             <tbody>
               ${
-                visibleRows.length === 0
-                  ? `<tr><td colspan="4" class="empty">No matching requests</td></tr>`
-                  : visibleRows
+                visibleEvents.length === 0
+                  ? `<tr><td colspan="5" class="empty">No matching events</td></tr>`
+                  : visibleEvents
                       .map(
-                        (row) => `
-                    <tr class="row ${row.isError ? "error" : ""} ${selectedRow?.toolUseId === row.toolUseId ? "selected" : ""}" data-row="${row.toolUseId}">
-                      <td>${row.toolName}</td>
-                      <td>${timeText(row.timeMs)}</td>
-                      <td>${row.ctxSpikeTokens.toLocaleString()}</td>
-                      <td>${new Date(row.startTimestamp).toLocaleTimeString()}</td>
-                    </tr>
-                  `
+                        (row) => renderEventRow(row, selectedEvent?.id === row.id, getContextTurn(row.timestamp))
                       )
                       .join("")
               }
@@ -425,29 +659,21 @@ function render(data, sessions) {
           </table>
         </div>
         <aside class="detail-panel">
-          ${
-            selectedRow
-              ? `
-            <h3>${selectedRow.toolName}</h3>
-            <p><strong>Use ID:</strong> ${selectedRow.toolUseId}</p>
-            <p><strong>Status:</strong> ${selectedRow.isError ? "error" : "ok"}</p>
-            <p><strong>Time:</strong> ${timeText(selectedRow.timeMs)}</p>
-            <p><strong>Ctx+:</strong> ${selectedRow.ctxSpikeTokens.toLocaleString()}</p>
-            ${
-              selectedRow.linkedSubagentId
-                ? `<p><strong>Spawns subagent session:</strong> <button class="subagent-link" data-jump-subagent="${selectedRow.linkedSubagentId}">${selectedRow.linkedSubagentId}</button></p>`
-                : ""
-            }
-            <h4>Input</h4>
-            <pre>${detailValue(selectedRow.toolInput)}</pre>
-            <h4>Result</h4>
-            <pre>${detailValue(selectedRow.toolResultContent)}</pre>
-          `
-              : `<p class="empty">Click a row to inspect details.</p>`
-          }
+          ${renderDetailPanel(selectedEvent, selectedEvent ? getContextTurn(selectedEvent.timestamp) : null)}
         </aside>
       </section>
   `;
+  const newRowsPanel = app.querySelector(".rows-panel");
+  if (newRowsPanel) newRowsPanel.scrollTop = prevScrollTop;
+  if (scrollToSelected && state.selectedRowId && newRowsPanel) {
+    const selectedRow = newRowsPanel.querySelector(`[data-row="${state.selectedRowId}"]`);
+    if (selectedRow) {
+      const panelRect = newRowsPanel.getBoundingClientRect();
+      const rowRect = selectedRow.getBoundingClientRect();
+      const offset = rowRect.top - panelRect.top + newRowsPanel.scrollTop - panelRect.height / 2 + rowRect.height / 2;
+      newRowsPanel.scrollTop = Math.max(0, offset);
+    }
+  }
   navBackBtn = app.querySelector("#nav-back-btn");
   navForwardBtn = app.querySelector("#nav-forward-btn");
   if (navBackBtn) navBackBtn.addEventListener("click", handleBackNavigation);
@@ -455,34 +681,45 @@ function render(data, sessions) {
   updateSessionTriggerLabel(sessions);
   renderSessionModalList(sessions);
   updateNavigationButtons();
+
+  // Kind filter pills (cycle: default → solo → exclude → default)
+  for (const btn of app.querySelectorAll("[data-kind]")) {
+    btn.addEventListener("click", () => {
+      const kind = btn.getAttribute("data-kind");
+      const current = state.selectedKinds.get(kind);
+      if (!current) state.selectedKinds.set(kind, "solo");
+      else if (current === "solo") state.selectedKinds.set(kind, "exclude");
+      else state.selectedKinds.delete(kind);
+      render(data, sessions);
+    });
+  }
   for (const btn of app.querySelectorAll("[data-tool]")) {
     btn.addEventListener("click", () => {
       const tool = btn.getAttribute("data-tool");
-      if (state.selectedTools.has(tool)) state.selectedTools.delete(tool);
-      else state.selectedTools.add(tool);
+      const current = state.selectedTools.get(tool);
+      if (!current) state.selectedTools.set(tool, "solo");
+      else if (current === "solo") state.selectedTools.set(tool, "exclude");
+      else state.selectedTools.delete(tool);
       render(data, sessions);
     });
   }
   for (const btn of app.querySelectorAll("[data-status]")) {
     btn.addEventListener("click", () => {
       const status = btn.getAttribute("data-status");
-      if (state.selectedStatuses.has(status)) state.selectedStatuses.delete(status);
-      else state.selectedStatuses.add(status);
+      const current = state.selectedStatuses.get(status);
+      if (!current) state.selectedStatuses.set(status, "solo");
+      else if (current === "solo") state.selectedStatuses.set(status, "exclude");
+      else state.selectedStatuses.delete(status);
       render(data, sessions);
     });
   }
   for (const btn of app.querySelectorAll("[data-scope]")) {
     btn.addEventListener("click", () => {
       const nextScopeId = btn.getAttribute("data-scope");
-      navigateToSnapshot(
-        {
-          ...captureNavigationState(),
-          activeScopeId: nextScopeId,
-          selectedRowId: null,
-        },
-        data,
-        sessions
-      );
+      if (nextScopeId === state.activeScopeId) return;
+      state.activeScopeId = nextScopeId;
+      state.selectedRowId = null;
+      render(data, sessions, { resetScroll: true });
     });
   }
   for (const btn of app.querySelectorAll("[data-jump-subagent]")) {
@@ -494,7 +731,7 @@ function render(data, sessions) {
         {
           ...captureNavigationState(),
           activeScopeId: scopeId,
-          selectedRowId: targetScope.requests[0]?.toolUseId ?? null,
+          selectedRowId: targetScope.events[0]?.id ?? null,
         },
         data,
         sessions
@@ -513,7 +750,6 @@ function render(data, sessions) {
       );
     });
   }
-
   const searchInput = app.querySelector("#filter-search");
   if (searchInput) {
     searchInput.addEventListener("input", (event) => {

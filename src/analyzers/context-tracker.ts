@@ -47,9 +47,11 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
     totalOutputTokens += outputTokens;
     if (totalTokens > peakTokens) peakTokens = totalTokens;
 
+    const scopeId = event.isSidechain ? (event.agentId ?? "unknown") : "main";
     const turn: TokenTurn = {
       turnIndex: i,
       timestamp: event.timestamp,
+      scopeId,
       inputTokens,
       cacheCreationTokens,
       cacheReadTokens,
@@ -58,19 +60,6 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
       percentOfLimit: Math.round((totalTokens / CONTEXT_LIMIT) * 1000) / 10,
     };
     tokenTurns.push(turn);
-
-    // Detect compaction: sudden drop in input tokens compared to previous turn
-    if (i > 0) {
-      const prevTotal = tokenTurns[i - 1].totalTokens;
-      if (prevTotal > 0 && totalTokens < prevTotal * 0.7) {
-        compactionEvents.push({
-          afterTurnIndex: i,
-          tokensBefore: prevTotal,
-          tokensAfter: totalTokens,
-          tokensFreed: prevTotal - totalTokens,
-        });
-      }
-    }
   }
 
   return { tokenTurns, compactionEvents, peakTokens, totalOutputTokens };

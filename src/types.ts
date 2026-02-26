@@ -105,6 +105,11 @@ export interface AssistantEvent {
   agentId?: string;
 }
 
+export interface CompactMetadata {
+  trigger?: string;
+  preTokens?: number;
+}
+
 export interface SystemEvent {
   type: "system";
   uuid: string;
@@ -116,6 +121,7 @@ export interface SystemEvent {
   level?: string;
   isSidechain: boolean;
   isMeta?: boolean;
+  compactMetadata?: CompactMetadata;
 }
 
 export interface ProgressEvent {
@@ -205,6 +211,7 @@ export interface ToolPattern {
 export interface TokenTurn {
   turnIndex: number;
   timestamp: string;
+  scopeId?: string;
   inputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
@@ -241,10 +248,55 @@ export interface NetworkRequestEntry {
   toolResultContent: string | null;
 }
 
+export type NetworkEventKind =
+  | "tool_use"
+  | "user_message"
+  | "assistant_text"
+  | "thinking"
+  | "hook"
+  | "system"
+  | "compaction";
+
+export interface NetworkTimelineEvent {
+  id: string;
+  kind: NetworkEventKind;
+  timestamp: string;
+  scopeId: string;
+  // Short label for table display
+  summary: string;
+  // Full content for detail panel
+  content: string;
+  // Tool-specific (kind === "tool_use")
+  toolName?: string;
+  toolUseId?: string;
+  linkedSubagentId?: string | null;
+  timeMs?: number | null;
+  ctxSpikeTokens?: number;
+  isError?: boolean;
+  toolInput?: Record<string, unknown>;
+  toolResultContent?: string | null;
+  // Progress-specific
+  hookEvent?: string;
+  hookName?: string;
+  progressType?: string;
+  // Assistant-specific: token usage
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+  // System-specific
+  subtype?: string;
+  durationMs?: number;
+  // Compaction-specific
+  compactTrigger?: string;
+  preTokens?: number;
+}
+
 export interface NetworkAgentScope {
   id: string;
   label: string;
   requests: NetworkRequestEntry[];
+  events: NetworkTimelineEvent[];
 }
 
 export interface AnalysisResult {

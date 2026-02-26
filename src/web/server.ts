@@ -109,16 +109,21 @@ export async function startWebServer(
     if (url.pathname === "/api/network/filters") {
       const toolNames = new Set<string>();
       const statuses = new Set<string>();
+      const eventKinds = new Set<string>();
       for (const scope of analysis!.network.scopes) {
         for (const req of scope.requests) {
           toolNames.add(req.toolName);
           statuses.add(req.isError ? "error" : "ok");
+        }
+        for (const evt of scope.events) {
+          eventKinds.add(evt.kind);
         }
       }
       if (statuses.size === 0) statuses.add("ok");
       return json(res, 200, {
         toolNames: [...toolNames].sort((a, b) => a.localeCompare(b)),
         statuses: [...statuses].sort((a, b) => a.localeCompare(b)),
+        eventKinds: [...eventKinds].sort((a, b) => a.localeCompare(b)),
       });
     }
 
