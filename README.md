@@ -2,6 +2,8 @@
 
 A browser-based inspector for Claude Code JSONL session transcripts. Think Chrome DevTools' Network tab, but for understanding what Claude did during a coding session — every tool call, thinking block, context window shift, and subagent spawn laid out on a single interactive timeline.
 
+<img width="1914" height="911" alt="ClaudeCodeAnalysis" src="https://github.com/user-attachments/assets/c1ed2024-eeb2-4ae1-b4af-9d5391f83f45" />
+
 ## Why
 
 Claude Code sessions can run for hundreds of turns across multiple subagents, consuming tokens in ways that are hard to reason about from the raw JSONL. This tool lets you:
