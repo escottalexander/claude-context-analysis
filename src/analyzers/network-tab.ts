@@ -10,6 +10,7 @@ import type {
   NetworkTimelineEvent,
   NetworkEventKind,
 } from "../types.js";
+import { toDisplayText, getScopeId } from "./utils.js";
 
 interface NetworkTabResult {
   scopes: NetworkAgentScope[];
@@ -52,7 +53,7 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
       isError: pair.toolResult?.is_error ?? false,
       toolInput: pair.toolUse.input,
       toolResultContent: pair.toolResult
-        ? normalizeResultContent(pair.toolResult.content)
+        ? toDisplayText(pair.toolResult.content)
         : null,
     });
   }
@@ -169,7 +170,7 @@ function buildTimelineEvents(
     }
   } else if (event.type === "user") {
     const ue = event as UserEvent;
-    const scopeId = ue.isSidechain ? ((ue as any).agentId ?? "unknown") : "main";
+    const scopeId = getScopeId(ue as any);
 
     if (typeof ue.message.content === "string") {
       // User text message
@@ -204,8 +205,9 @@ function buildTimelineEvents(
     const pe = event as ProgressEvent;
     const data = pe.data;
 
-    // Skip agent_progress — covered by the subagent's own session files
-    if (data.type === "agent_progress") return results;
+    // Skip agent_progress (covered by the subagent's own session files)
+    // and bash_progress (streaming output; the tool_use/tool_result pair covers it)
+    if (data.type === "agent_progress" || data.type === "bash_progress") return results;
 
     // hook_progress: resolve scope from parent tool use ID
     const parentToolId = pe.parentToolUseID ?? pe.toolUseID;
@@ -298,7 +300,7 @@ function mergeToolResults(
     const te = toolUseMap.get(pair.toolUse.id);
     if (te && pair.toolResult) {
       te.isError = pair.toolResult.is_error ?? false;
-      te.toolResultContent = normalizeResultContent(pair.toolResult.content);
+      te.toolResultContent = toDisplayText(pair.toolResult.content);
       te.timeMs = computeTimeMs(pair.assistantTimestamp, pair.resultTimestamp);
       te.toolUseResult = toolUseResultMap.get(pair.toolUse.id) ?? undefined;
     }
@@ -433,36 +435,10 @@ function indexAgentIdByUuid(
   return map;
 }
 
-function getScopeId(event: AssistantEvent): string {
-  return event.isSidechain ? (event.agentId ?? "unknown") : "main";
-}
-
 function computeTimeMs(start: string, end: string | null): number | null {
   if (!end) return null;
   const time = new Date(end).getTime() - new Date(start).getTime();
   return time >= 0 ? time : null;
-}
-
-function normalizeResultContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (content === null || content === undefined) return "";
-  if (Array.isArray(content)) {
-    return content.map((item) => normalizeResultContent(item)).join(" ");
-  }
-  if (typeof content === "object") {
-    if (
-      "text" in content &&
-      typeof (content as { text?: unknown }).text === "string"
-    ) {
-      return (content as { text: string }).text;
-    }
-    try {
-      return JSON.stringify(content);
-    } catch {
-      return String(content);
-    }
-  }
-  return String(content);
 }
 
 function compareScopeIds(a: NetworkAgentScope, b: NetworkAgentScope): number {

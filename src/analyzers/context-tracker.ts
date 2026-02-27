@@ -1,27 +1,23 @@
 import type { SessionTree } from "../parser/session-tree.js";
 import type { SystemEvent, TokenTurn, CompactionEvent } from "../types.js";
+import { getScopeId } from "./utils.js";
 
 export interface ContextTrackerResult {
   tokenTurns: TokenTurn[];
   compactionEvents: CompactionEvent[];
-  peakTokens: number;
-  totalOutputTokens: number;
 }
 
 export function analyzeContext(tree: SessionTree): ContextTrackerResult {
   const assistantEvents = tree.getAssistantEvents();
   const tokenTurns: TokenTurn[] = [];
   const compactionEvents: CompactionEvent[] = [];
-  let peakTokens = 0;
-  let totalOutputTokens = 0;
-
   // Collect compaction timestamps so we can insert reset turns
   const compactionTimestamps: { timestamp: string; scopeId: string }[] = [];
   for (const event of tree.getChronologicalEvents()) {
     if (event.type === "system") {
       const se = event as SystemEvent;
       if (se.subtype === "compact_boundary") {
-        const scopeId = se.isSidechain ? "unknown" : "main";
+        const scopeId = getScopeId(se);
         compactionTimestamps.push({ timestamp: se.timestamp, scopeId });
       }
     }
@@ -58,10 +54,7 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
     const outputTokens = usage.output_tokens;
     const totalTokens = inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens;
 
-    totalOutputTokens += outputTokens;
-    if (totalTokens > peakTokens) peakTokens = totalTokens;
-
-    const scopeId = event.isSidechain ? (event.agentId ?? "unknown") : "main";
+    const scopeId = getScopeId(event);
     const turn: TokenTurn = {
       turnIndex: i,
       timestamp: earliestTimestamp.get(reqId) ?? event.timestamp,
@@ -94,5 +87,5 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
   // Re-sort so synthetic entries interleave correctly
   tokenTurns.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-  return { tokenTurns, compactionEvents, peakTokens, totalOutputTokens };
+  return { tokenTurns, compactionEvents };
 }

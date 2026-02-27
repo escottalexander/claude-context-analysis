@@ -87,7 +87,7 @@ describe("web ui model", () => {
     expect(appSource).not.toContain("data-tab=");
     expect(appSource).toContain("data-jump-subagent");
     expect(appSource).toContain("Context:");
-    expect(appSource).toContain("Time:");
+    expect(appSource).toContain("<th>Time</th>");
     expect(appSource).toContain("evt.isError ? \"error\" : \"\"");
   });
 
@@ -121,9 +121,9 @@ describe("web ui model", () => {
       "app.js"
     );
     const appSource = readFileSync(appJsPath, "utf8");
-    expect(appSource).toContain("nextSearchInput.focus()");
+    expect(appSource).toContain("next.focus()");
     expect(appSource).toContain("inputmode=\"numeric\"");
-    expect(appSource).toContain("value.replace(/\\D/g, \"\")");
+    expect(appSource).toContain("value.trim().replace(/\\D/g, \"\")");
   });
 
   it("uses URL query param session state for tab/window independence", () => {

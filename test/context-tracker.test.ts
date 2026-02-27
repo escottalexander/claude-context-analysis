@@ -25,24 +25,6 @@ describe("analyzeContext", () => {
     expect(result.tokenTurns.length).toBe(4);
   });
 
-  it("tracks peak tokens", async () => {
-    const events = await readJsonl(FIXTURE);
-    const tree = new SessionTree(events);
-    const result = analyzeContext(tree);
-
-    expect(result.peakTokens).toBeGreaterThan(0);
-    const maxTurn = Math.max(...result.tokenTurns.map((t) => t.totalTokens));
-    expect(result.peakTokens).toBe(maxTurn);
-  });
-
-  it("tracks total output tokens", async () => {
-    const events = await readJsonl(FIXTURE);
-    const tree = new SessionTree(events);
-    const result = analyzeContext(tree);
-
-    expect(result.totalOutputTokens).toBeGreaterThan(0);
-  });
-
   it("detects compaction when tokens drop sharply", async () => {
     // Our fixture has monotonically growing tokens, so no compaction
     const events = await readJsonl(FIXTURE);

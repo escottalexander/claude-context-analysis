@@ -5,6 +5,7 @@ import type {
   TimelineEntry,
   ToolResultBlock,
 } from "../types.js";
+import { toDisplayText, truncate } from "./utils.js";
 
 export function analyzeReasoningChain(tree: SessionTree): TimelineEntry[] {
   const timeline: TimelineEntry[] = [];
@@ -124,33 +125,6 @@ function getFilePath(input: Record<string, unknown>, cwd?: string): string | nul
   const filePath = input.file_path ?? input.path;
   if (typeof filePath !== "string" || filePath.length === 0) return null;
   return normalizePathForDisplay(filePath, cwd);
-}
-
-function toDisplayText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) {
-    return value.map((entry) => toDisplayText(entry)).join(" ");
-  }
-  if (typeof value === "object") {
-    if (
-      "text" in value &&
-      typeof (value as { text?: unknown }).text === "string"
-    ) {
-      return (value as { text: string }).text;
-    }
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value);
-}
-
-function truncate(str: string, max: number): string {
-  if (str.length <= max) return str;
-  return str.slice(0, max) + "...";
 }
 
 function normalizePathForDisplay(value: string, cwd?: string): string {

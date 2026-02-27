@@ -935,37 +935,22 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
   renderSessionModalList(sessions);
   updateNavigationButtons();
 
-  // Kind filter pills (cycle: default → solo → exclude → default)
-  for (const btn of app.querySelectorAll("[data-kind]")) {
-    btn.addEventListener("click", () => {
-      const kind = btn.getAttribute("data-kind");
-      const current = state.selectedKinds.get(kind);
-      if (!current) state.selectedKinds.set(kind, "solo");
-      else if (current === "solo") state.selectedKinds.set(kind, "exclude");
-      else state.selectedKinds.delete(kind);
-      render(data, sessions);
-    });
+  // Kind/tool/status filter pills (cycle: default → solo → exclude → default)
+  function attachFilterHandler(selector, attrName, stateMap) {
+    for (const btn of app.querySelectorAll(selector)) {
+      btn.addEventListener("click", () => {
+        const value = btn.getAttribute(attrName);
+        const current = stateMap.get(value);
+        if (!current) stateMap.set(value, "solo");
+        else if (current === "solo") stateMap.set(value, "exclude");
+        else stateMap.delete(value);
+        render(data, sessions);
+      });
+    }
   }
-  for (const btn of app.querySelectorAll("[data-tool]")) {
-    btn.addEventListener("click", () => {
-      const tool = btn.getAttribute("data-tool");
-      const current = state.selectedTools.get(tool);
-      if (!current) state.selectedTools.set(tool, "solo");
-      else if (current === "solo") state.selectedTools.set(tool, "exclude");
-      else state.selectedTools.delete(tool);
-      render(data, sessions);
-    });
-  }
-  for (const btn of app.querySelectorAll("[data-status]")) {
-    btn.addEventListener("click", () => {
-      const status = btn.getAttribute("data-status");
-      const current = state.selectedStatuses.get(status);
-      if (!current) state.selectedStatuses.set(status, "solo");
-      else if (current === "solo") state.selectedStatuses.set(status, "exclude");
-      else state.selectedStatuses.delete(status);
-      render(data, sessions);
-    });
-  }
+  attachFilterHandler("[data-kind]", "data-kind", state.selectedKinds);
+  attachFilterHandler("[data-tool]", "data-tool", state.selectedTools);
+  attachFilterHandler("[data-status]", "data-status", state.selectedStatuses);
   for (const btn of app.querySelectorAll("[data-scope]")) {
     btn.addEventListener("click", () => {
       const nextScopeId = btn.getAttribute("data-scope");
@@ -1003,34 +988,27 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
       );
     });
   }
-  const searchInput = app.querySelector("#filter-search");
-  if (searchInput) {
-    searchInput.addEventListener("input", (event) => {
-      state.searchQuery = event.target.value;
+  function attachInputHandler(selector, onInput) {
+    const el = app.querySelector(selector);
+    if (!el) return;
+    el.addEventListener("input", (event) => {
+      onInput(event);
       render(data, sessions);
-      const nextSearchInput = app.querySelector("#filter-search");
-      if (nextSearchInput) {
-        nextSearchInput.focus();
-        const cursor = state.searchQuery.length;
-        nextSearchInput.setSelectionRange(cursor, cursor);
+      const next = app.querySelector(selector);
+      if (next) {
+        next.focus();
+        const cursor = next.value.length;
+        next.setSelectionRange(cursor, cursor);
       }
     });
   }
-  const timeInput = app.querySelector("#filter-time");
-  if (timeInput) {
-    timeInput.addEventListener("input", (event) => {
-      const value = event.target.value.trim();
-      const digitsOnly = value.replace(/\D/g, "");
-      state.minTimeMs = digitsOnly === "" ? null : Number(digitsOnly);
-      render(data, sessions);
-      const nextTimeInput = app.querySelector("#filter-time");
-      if (nextTimeInput) {
-        nextTimeInput.focus();
-        const cursor = nextTimeInput.value.length;
-        nextTimeInput.setSelectionRange(cursor, cursor);
-      }
-    });
-  }
+  attachInputHandler("#filter-search", (e) => {
+    state.searchQuery = e.target.value;
+  });
+  attachInputHandler("#filter-time", (e) => {
+    const digitsOnly = e.target.value.trim().replace(/\D/g, "");
+    state.minTimeMs = digitsOnly === "" ? null : Number(digitsOnly);
+  });
 
   // Render context sparkline
   const sparkCanvas = app.querySelector("#ctx-sparkline");

@@ -302,17 +302,3 @@ export interface NetworkAgentScope {
   requests: NetworkRequestEntry[];
   events: NetworkTimelineEvent[];
 }
-
-export interface AnalysisResult {
-  sessionId: string;
-  sessionStart: string;
-  sessionEnd: string;
-  totalEvents: number;
-  timeline: TimelineEntry[];
-  toolStats: ToolStats[];
-  fileAccess: FileAccess[];
-  toolPatterns: ToolPattern[];
-  tokenTurns: TokenTurn[];
-  compactionEvents: CompactionEvent[];
-  skillImpacts: SkillFileImpact[];
-}
