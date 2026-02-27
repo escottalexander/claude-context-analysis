@@ -218,7 +218,6 @@ export interface TokenTurn {
   cacheReadTokens: number;
   outputTokens: number;
   totalTokens: number;
-  percentOfLimit: number;
 }
 
 export interface CompactionEvent {

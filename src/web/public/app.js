@@ -519,7 +519,7 @@ function renderContextInfo(evt, contextTurn) {
       `Input: ${t.inputTokens.toLocaleString()}`,
       `Output: ${t.outputTokens.toLocaleString()}`,
     ].join(" | ");
-    parts.push(`<p><strong>Context:</strong> <span class="context-total" title="${tooltip}">${t.totalTokens.toLocaleString()} tokens (${t.percentOfLimit.toFixed(1)}%)</span></p>`);
+    parts.push(`<p><strong>Context:</strong> <span class="context-total" title="${tooltip}">${t.totalTokens.toLocaleString()} tokens</span></p>`);
   }
 
   return parts.join("\n");
@@ -655,7 +655,7 @@ function renderSparkline(canvas, points, selectedEventId) {
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
 
-  // Find max tokens for Y scale (use 200k context limit as ceiling if higher)
+  // Find max tokens for Y scale
   const tokenValues = points.map((p) => p.totalTokens ?? 0);
   const maxTokens = Math.max(...tokenValues, 1);
   const yScale = (h - 4) / maxTokens;

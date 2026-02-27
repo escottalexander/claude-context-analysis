@@ -85,7 +85,7 @@ Back/forward buttons track your selection history across scope jumps and row sel
 
 ```
 src/
-  cli.ts                  — entry point, starts the web server
+  index.ts                — entry point, starts the web server
   types.ts                — shared TypeScript types for all events and analysis
   parser/
     jsonl-reader.ts       — reads session JSONL bundles (main + subagent files)

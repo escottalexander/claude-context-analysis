@@ -1,8 +1,6 @@
 import type { SessionTree } from "../parser/session-tree.js";
 import type { SystemEvent, TokenTurn, CompactionEvent } from "../types.js";
 
-const CONTEXT_LIMIT = 200_000;
-
 export interface ContextTrackerResult {
   tokenTurns: TokenTurn[];
   compactionEvents: CompactionEvent[];
@@ -73,7 +71,6 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
       cacheReadTokens,
       outputTokens,
       totalTokens,
-      percentOfLimit: Math.round((totalTokens / CONTEXT_LIMIT) * 1000) / 10,
     };
     tokenTurns.push(turn);
   }
@@ -91,7 +88,6 @@ export function analyzeContext(tree: SessionTree): ContextTrackerResult {
       cacheReadTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
-      percentOfLimit: 0,
     });
   }
 

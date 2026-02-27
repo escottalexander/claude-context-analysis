@@ -25,17 +25,6 @@ describe("analyzeContext", () => {
     expect(result.tokenTurns.length).toBe(4);
   });
 
-  it("calculates percent of 200K limit", async () => {
-    const events = await readJsonl(FIXTURE);
-    const tree = new SessionTree(events);
-    const result = analyzeContext(tree);
-
-    for (const turn of result.tokenTurns) {
-      expect(turn.percentOfLimit).toBeGreaterThan(0);
-      expect(turn.percentOfLimit).toBeLessThan(100);
-    }
-  });
-
   it("tracks peak tokens", async () => {
     const events = await readJsonl(FIXTURE);
     const tree = new SessionTree(events);

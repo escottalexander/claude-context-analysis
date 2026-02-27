@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "start": "tsx src/cli.ts",
+    "start": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
