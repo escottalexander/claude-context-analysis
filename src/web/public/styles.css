@@ -502,6 +502,12 @@ tbody td:nth-child(5) {
   border: 1px solid #2a5a8c;
 }
 
+.kind-badge-tool_result {
+  background: #1a3a4a;
+  color: #7eb8d8;
+  border: 1px solid #2a5a6c;
+}
+
 .kind-badge-user_message {
   background: #1a4a2a;
   color: #7ee8a0;
@@ -544,6 +550,60 @@ tbody td:nth-child(5) {
   border: 1px solid #a050ff;
 }
 
+/* Detail panel time badge */
+.detail-time-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  background: #2a2a2a;
+  color: #999;
+  border: 1px solid #3a3a3a;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+/* Detail header with status badge */
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-header h3 {
+  margin: 0;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-badge-success {
+  background: #1a4a2a;
+  color: #7ee8a0;
+  border: 1px solid #2a6a3a;
+}
+
+.status-badge-error {
+  background: #4a1a1a;
+  color: #e87e7e;
+  border: 1px solid #6a2a2a;
+}
+
+/* Context total with hover breakdown */
+.context-total {
+  cursor: help;
+  border-bottom: 1px dotted #666;
+}
+
 /* Duplicate request rows — same API call, streamed as multiple events */
 .row.duplicate-request {
   border-left: 2px solid #555;
@@ -567,6 +627,10 @@ tbody td:nth-child(5) {
 }
 
 /* Kind-based row tinting */
+.row.kind-tool-result {
+  border-left: 3px solid #2a5a6c;
+}
+
 .row.kind-user {
   border-left: 3px solid #2a6a3a;
 }
@@ -592,6 +656,10 @@ tbody td:nth-child(5) {
   background: #2d2318;
   color: #e8c87a;
   font-style: italic;
+}
+
+.row.kind-tool-result:hover {
+  background: #1a2a30;
 }
 
 .row.kind-user:hover {
@@ -623,4 +691,94 @@ tbody td:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── JSON Tree Viewer ── */
+.json-tree {
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.jt-node {
+  padding-left: 16px;
+}
+
+.jt-leaf {
+  padding-left: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.jt-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.jt-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+}
+
+.jt-toggle::before {
+  content: "▼ ";
+  font-size: 9px;
+  color: #666;
+  display: inline-block;
+  width: 14px;
+}
+
+.jt-collapsed > .jt-toggle::before {
+  content: "▶ ";
+}
+
+.jt-collapsed > .jt-children {
+  display: none;
+}
+
+.jt-collapsed > .jt-brace:last-child {
+  display: none;
+}
+
+.jt-expanded > .jt-toggle > .jt-preview {
+  display: none;
+}
+
+.jt-key {
+  color: #e06c75;
+}
+
+.jt-colon {
+  color: #888;
+}
+
+.jt-str {
+  color: #98c379;
+  word-break: break-word;
+}
+
+.jt-num {
+  color: #d19a66;
+}
+
+.jt-bool {
+  color: #56b6c2;
+}
+
+.jt-null {
+  color: #666;
+  font-style: italic;
+}
+
+.jt-brace {
+  color: #888;
+}
+
+.jt-ellipsis {
+  color: #666;
+  font-style: italic;
 }

@@ -132,7 +132,9 @@ function handleForwardNavigation() {
 }
 
 function timeText(timeMs) {
-  return timeMs === null || timeMs === undefined ? "-" : `${timeMs}ms`;
+  if (timeMs === null || timeMs === undefined) return "-";
+  if (timeMs >= 1000) return `${(timeMs / 1000).toFixed(1)}s`;
+  return `${timeMs}ms`;
 }
 
 function escapeHtml(value) {
@@ -222,6 +224,55 @@ function detailValue(value) {
   } catch {
     return String(value);
   }
+}
+
+/**
+ * Render a JSON value as a collapsible, syntax-highlighted tree.
+ * Returns an HTML string. Objects/arrays with children are collapsible.
+ */
+function renderJsonTree(value, key, collapsed) {
+  if (value === null) return jsonLeaf(key, '<span class="jt-null">null</span>');
+  if (value === undefined) return jsonLeaf(key, '<span class="jt-null">undefined</span>');
+  if (typeof value === "boolean") return jsonLeaf(key, `<span class="jt-bool">${value}</span>`);
+  if (typeof value === "number") return jsonLeaf(key, `<span class="jt-num">${value}</span>`);
+  if (typeof value === "string") {
+    const display = value.length > 300
+      ? escapeHtml(value.slice(0, 300)) + '<span class="jt-ellipsis">…</span>'
+      : escapeHtml(value);
+    return jsonLeaf(key, `<span class="jt-str">"${display}"</span>`);
+  }
+
+  const isArray = Array.isArray(value);
+  const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+  const open = isArray ? "[" : "{";
+  const close = isArray ? "]" : "}";
+
+  if (entries.length === 0) {
+    return jsonLeaf(key, `<span class="jt-brace">${open}${close}</span>`);
+  }
+
+  const shouldCollapse = collapsed ?? false;
+  const stateClass = shouldCollapse ? "jt-collapsed" : "jt-expanded";
+  const keyHtml = key !== null ? `<span class="jt-key">"${escapeHtml(String(key))}"</span><span class="jt-colon">: </span>` : "";
+
+  return `<div class="jt-node ${stateClass}">
+    <span class="jt-toggle" onclick="this.parentElement.classList.toggle('jt-collapsed');this.parentElement.classList.toggle('jt-expanded')">${keyHtml}<span class="jt-brace">${open}</span><span class="jt-preview jt-ellipsis"> ${entries.length} ${isArray ? "items" : "keys"} </span></span>
+    <div class="jt-children">${entries.map(([k, v]) => renderJsonTree(v, k, false)).join("")}</div>
+    <span class="jt-brace">${close}</span>
+  </div>`;
+}
+
+function jsonLeaf(key, valueHtml) {
+  const keyHtml = key !== null ? `<span class="jt-key">"${escapeHtml(String(key))}"</span><span class="jt-colon">: </span>` : "";
+  return `<div class="jt-leaf">${keyHtml}${valueHtml}</div>`;
+}
+
+function renderJsonViewer(value) {
+  if (value === null || value === undefined) return "<pre>-</pre>";
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return `<pre>${escapeHtml(value)}</pre>`; }
+  }
+  return `<div class="json-tree">${renderJsonTree(value, null, false)}</div>`;
 }
 
 
@@ -422,7 +473,8 @@ function renderEventRow(evt, isSelected, contextTurn, isDuplicateRequest) {
     : "";
 
   if (evt.kind === "tool_use") {
-    const ctxVal = isDuplicateRequest ? '<span class="dup-token" title="Same API request as above">↑</span>' : ctxText(evt.ctxSpikeTokens);
+    const dupTooltip = "Additional context is shared with the previous row showing context usage";
+    const ctxVal = isDuplicateRequest ? `<span class="dup-token" title="${dupTooltip}">↑</span>` : ctxText(evt.ctxSpikeTokens);
     return `<tr class="row ${errorClass} ${selectedClass} ${kindClass} ${dupClass}" data-row="${evt.id}">
       <td><span class="kind-badge kind-badge-tool_use">Tool</span>${subagentBadge} <span class="row-summary">${escapeHtml(evt.toolName)}</span></td>
       <td>${timeText(evt.timeMs)}</td>
@@ -435,7 +487,8 @@ function renderEventRow(evt, isSelected, contextTurn, isDuplicateRequest) {
   const kindLabel = KIND_LABELS[evt.kind] || evt.kind;
   const cacheTokens = evt.cacheCreationTokens ?? 0;
   const evtTime = evt.durationMs ? `${evt.durationMs}ms` : "-";
-  const ctxVal = isDuplicateRequest ? '<span class="dup-token" title="Same API request as above">↑</span>' : ctxText(cacheTokens);
+  const dupTooltip = "Additional context is shared with the previous row showing context usage";
+  const ctxVal = isDuplicateRequest ? `<span class="dup-token" title="${dupTooltip}">↑</span>` : ctxText(cacheTokens);
   return `<tr class="row ${selectedClass} ${kindClass} ${dupClass}" data-row="${evt.id}">
     <td><span class="kind-badge kind-badge-${evt.kind}">${escapeHtml(kindLabel)}</span>${subagentBadge} <span class="row-summary">${escapeHtml(evt.summary)}</span></td>
     <td>${evtTime}</td>
@@ -445,76 +498,110 @@ function renderEventRow(evt, isSelected, contextTurn, isDuplicateRequest) {
   </tr>`;
 }
 
+/**
+ * Unified context info block for detail panels.
+ * Shows Ctx+ and total context with a tooltip breaking down token categories.
+ */
+function renderContextInfo(evt, contextTurn) {
+  const parts = [];
+
+  // Ctx+ (cache creation / new context added)
+  const ctxPlus = evt.ctxSpikeTokens ?? evt.cacheCreationTokens ?? 0;
+  if (ctxPlus > 0) {
+    parts.push(`<p><strong>Ctx+:</strong> ${ctxPlus.toLocaleString()} tokens</p>`);
+  }
+
+  // Total context with hover breakdown
+  if (contextTurn) {
+    const t = contextTurn;
+    const tooltip = [
+      `Cache read: ${t.cacheReadTokens.toLocaleString()}`,
+      `Cache creation: ${t.cacheCreationTokens.toLocaleString()}`,
+      `Input: ${t.inputTokens.toLocaleString()}`,
+      `Output: ${t.outputTokens.toLocaleString()}`,
+    ].join(" | ");
+    parts.push(`<p><strong>Context:</strong> <span class="context-total" title="${tooltip}">${t.totalTokens.toLocaleString()} tokens (${t.percentOfLimit.toFixed(1)}%)</span></p>`);
+  }
+
+  return parts.join("\n");
+}
+
+function detailTimeBadge(evt) {
+  const ts = new Date(evt.timestamp).toLocaleTimeString();
+  const duration = evt.timeMs != null ? timeText(evt.timeMs) : null;
+  const label = duration ? `${ts} · ${duration}` : ts;
+  return `<span class="detail-time-badge">${label}</span>`;
+}
+
+function detailStatusBadge(evt) {
+  if (evt.kind !== "tool_use") return "";
+  const isErr = evt.isError;
+  const cls = isErr ? "status-badge-error" : "status-badge-success";
+  const label = isErr ? "Error" : "Success";
+  return `<span class="status-badge ${cls}">${label}</span>`;
+}
+
 function renderDetailPanel(evt, contextTurn) {
   if (!evt) return `<p class="empty">Click a row to inspect details.</p>`;
 
+  const ctxInfo = renderContextInfo(evt, contextTurn);
+  const timeBadge = detailTimeBadge(evt);
+  const statusBadge = detailStatusBadge(evt);
+
   if (evt.kind === "tool_use") {
     return `
-      <h3>${escapeHtml(evt.toolName)}</h3>
+      <div class="detail-header"><h3>${escapeHtml(evt.toolName)} ${timeBadge}</h3>${statusBadge}</div>
       <p><strong>Use ID:</strong> ${escapeHtml(evt.toolUseId)}</p>
-      <p><strong>Status:</strong> ${evt.isError ? "error" : "ok"}</p>
-      <p><strong>Time:</strong> ${timeText(evt.timeMs)}</p>
-      <p><strong>Ctx+:</strong> ${(evt.ctxSpikeTokens ?? 0).toLocaleString()}</p>
-      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${ctxInfo}
       ${evt.linkedSubagentId
         ? `<p><strong>Spawns subagent:</strong> <button class="subagent-link" data-jump-subagent="${evt.linkedSubagentId}">${evt.linkedSubagentId}</button></p>`
         : ""}
       <h4>Input</h4>
-      <pre>${detailValue(evt.toolInput)}</pre>
+      ${renderJsonViewer(evt.toolInput)}
       <h4>Result</h4>
-      <pre>${detailValue(evt.toolResultContent)}</pre>`;
+      <pre>${detailValue(evt.toolResultContent)}</pre>
+      ${evt.toolUseResult ? `<h4>Metadata</h4>${renderJsonViewer(evt.toolUseResult)}` : ""}`;
   }
 
   if (evt.kind === "user_message") {
     return `
-      <h3>User Message</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      <h3>User Message ${timeBadge}</h3>
+      ${ctxInfo}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }
 
   if (evt.kind === "assistant_text") {
     return `
-      <h3>Assistant Response</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
-      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
-      ${evt.inputTokens != null ? `<p><strong>Input tokens:</strong> ${evt.inputTokens.toLocaleString()}</p>` : ""}
-      ${evt.outputTokens != null ? `<p><strong>Output tokens:</strong> ${evt.outputTokens.toLocaleString()}</p>` : ""}
-      ${evt.cacheCreationTokens ? `<p><strong>Cache creation:</strong> ${evt.cacheCreationTokens.toLocaleString()}</p>` : ""}
-      ${evt.cacheReadTokens ? `<p><strong>Cache read:</strong> ${evt.cacheReadTokens.toLocaleString()}</p>` : ""}
+      <h3>Assistant Response ${timeBadge}</h3>
+      ${ctxInfo}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }
 
   if (evt.kind === "thinking") {
     return `
-      <h3>Thinking</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
-      ${contextTurn ? `<p><strong>Context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
-      ${evt.inputTokens != null ? `<p><strong>Input tokens:</strong> ${evt.inputTokens.toLocaleString()}</p>` : ""}
-      ${evt.outputTokens != null ? `<p><strong>Output tokens:</strong> ${evt.outputTokens.toLocaleString()}</p>` : ""}
+      <h3>Thinking ${timeBadge}</h3>
+      ${ctxInfo}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }
 
   if (evt.kind === "hook") {
     return `
-      <h3>Hook</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
-      ${evt.progressType ? `<p><strong>Type:</strong> ${escapeHtml(evt.progressType)}</p>` : ""}
-      ${evt.hookEvent ? `<p><strong>Hook event:</strong> ${escapeHtml(evt.hookEvent)}</p>` : ""}
+      <h3>Hook ${timeBadge}</h3>
       ${evt.hookName ? `<p><strong>Hook name:</strong> ${escapeHtml(evt.hookName)}</p>` : ""}
+      ${ctxInfo}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }
 
   if (evt.kind === "compaction") {
     return `
-      <h3>Context Compaction</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      <h3>Context Compaction ${timeBadge}</h3>
       ${evt.compactTrigger ? `<p><strong>Trigger:</strong> ${escapeHtml(evt.compactTrigger)}</p>` : ""}
       ${evt.preTokens ? `<p><strong>Pre-compaction tokens:</strong> ${evt.preTokens.toLocaleString()}</p>` : ""}
-      ${contextTurn ? `<p><strong>Post-compaction context:</strong> ${contextTurn.totalTokens.toLocaleString()} tokens (${contextTurn.percentOfLimit.toFixed(1)}%)</p>` : ""}
+      ${ctxInfo}
       ${evt.linkedSubagentId
         ? `<p><strong>Compaction subagent:</strong> <button class="subagent-link" data-jump-subagent="${evt.linkedSubagentId}">${evt.linkedSubagentId}</button></p>`
         : ""}
@@ -524,10 +611,10 @@ function renderDetailPanel(evt, contextTurn) {
 
   if (evt.kind === "system") {
     return `
-      <h3>System Event</h3>
-      <p><strong>Time:</strong> ${new Date(evt.timestamp).toLocaleTimeString()}</p>
+      <h3>System Event ${timeBadge}</h3>
       ${evt.subtype ? `<p><strong>Subtype:</strong> ${escapeHtml(evt.subtype)}</p>` : ""}
-      ${evt.durationMs ? `<p><strong>Duration:</strong> ${evt.durationMs}ms</p>` : ""}
+      ${evt.durationMs ? `<p><strong>Duration:</strong> ${timeText(evt.durationMs)}</p>` : ""}
+      ${ctxInfo}
       <h4>Content</h4>
       <pre>${escapeHtml(evt.content)}</pre>`;
   }

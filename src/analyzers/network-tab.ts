@@ -78,9 +78,11 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
     eventCounter += timelineEvents.length || 1;
   }
 
-  // Merge tool_result data back into tool_use timeline events
+  // Merge tool_result data back into tool_use timeline events,
+  // and deduplicate hook pairs (command + callback).
   for (const scope of scopes.values()) {
     mergeToolResults(scope.events, tree);
+    deduplicateHooks(scope.events);
   }
 
   return {
@@ -184,9 +186,8 @@ function buildTimelineEvents(
       // Tool results - match them back to existing tool_use events in the scope
       for (const block of ue.message.content) {
         if (block.type === "tool_result") {
-          // We don't create a separate event for tool_result; it's merged into tool_use events.
-          // But we do need to patch the tool_use event with result data.
-          // This is handled below after all events are collected.
+          // tool_result data is merged into the matching tool_use event
+          // via mergeToolResults() after all events are collected.
         } else if (block.type === "text") {
           results.push({
             id: `user-text-${ue.uuid}-${counter++}`,
@@ -280,13 +281,75 @@ function mergeToolResults(
       toolUseMap.set(evt.toolUseId, evt);
     }
   }
+  // Build a tool_use_id → toolUseResult map from user events
+  const toolUseResultMap = new Map<string, Record<string, unknown>>();
+  for (const ue of tree.getUserEvents()) {
+    if (!Array.isArray(ue.message.content)) continue;
+    const meta = ue.toolUseResult as Record<string, unknown> | undefined;
+    if (!meta) continue;
+    for (const block of ue.message.content) {
+      if (block.type === "tool_result") {
+        toolUseResultMap.set((block as any).tool_use_id, meta);
+      }
+    }
+  }
+
   for (const pair of tree.getToolPairs()) {
     const te = toolUseMap.get(pair.toolUse.id);
     if (te && pair.toolResult) {
       te.isError = pair.toolResult.is_error ?? false;
       te.toolResultContent = normalizeResultContent(pair.toolResult.content);
       te.timeMs = computeTimeMs(pair.assistantTimestamp, pair.resultTimestamp);
+      te.toolUseResult = toolUseResultMap.get(pair.toolUse.id) ?? undefined;
     }
+  }
+}
+
+/**
+ * Deduplicate hook pairs that share the same toolUseID and hookName.
+ * Hooks often come as a command event followed by a "callback" event.
+ * We keep the one with the real command and drop the callback duplicate.
+ * Mutates the array in place.
+ */
+function deduplicateHooks(events: NetworkTimelineEvent[]): void {
+  // Group hooks by their toolUseId + hookName key
+  const hookGroups = new Map<string, number[]>();
+  for (let i = 0; i < events.length; i++) {
+    const evt = events[i];
+    if (evt.kind !== "hook" || !evt.hookName) continue;
+    // Use the toolUseId embedded in the event id (hook-<uuid>-<counter>)
+    // but actually we need the parentToolUseID — extract from content or id
+    // The hookName + timestamp combo groups them since they fire at the same time
+    const key = `${evt.hookName}:${evt.timestamp}`;
+    const group = hookGroups.get(key);
+    if (group) {
+      group.push(i);
+    } else {
+      hookGroups.set(key, [i]);
+    }
+  }
+
+  const toRemove = new Set<number>();
+  for (const indices of hookGroups.values()) {
+    if (indices.length <= 1) continue;
+    // Find the one with the real command (not "callback")
+    let keepIdx = indices[0];
+    for (const idx of indices) {
+      const content = events[idx].content ?? "";
+      if (!content.endsWith(": callback") && content !== "callback") {
+        keepIdx = idx;
+      }
+    }
+    // Mark all others for removal
+    for (const idx of indices) {
+      if (idx !== keepIdx) toRemove.add(idx);
+    }
+  }
+
+  // Remove in reverse order to preserve indices
+  const sortedRemove = [...toRemove].sort((a, b) => b - a);
+  for (const idx of sortedRemove) {
+    events.splice(idx, 1);
   }
 }
 

@@ -276,6 +276,8 @@ export interface NetworkTimelineEvent {
   isError?: boolean;
   toolInput?: Record<string, unknown>;
   toolResultContent?: string | null;
+  // Tool result-specific
+  toolUseResult?: Record<string, unknown>;
   // Progress-specific
   hookEvent?: string;
   hookName?: string;
