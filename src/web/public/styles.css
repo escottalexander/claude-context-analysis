@@ -119,7 +119,6 @@ h1 {
 .filter-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
 }
@@ -131,8 +130,23 @@ h1 {
   gap: 12px;
 }
 
+.filter-bar-center {
+  flex: 1;
+  max-width: 400px;
+  height: 36px;
+}
+
+#ctx-sparkline {
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  border-radius: 4px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+}
+
 .filter-bar-right {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .filter-bar label {
@@ -349,13 +363,15 @@ input {
 table {
   width: 100%;
   table-layout: fixed;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
 }
 
 thead th {
   position: sticky;
-  top: 0;
+  top: var(--summary-height, 35px);
+  z-index: 1;
   background: #2d2d2d;
   text-align: left;
   padding: 8px;

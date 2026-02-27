@@ -100,7 +100,7 @@ function applyNavigationState(snapshot, data, sessions, { scrollToSelected = fal
   render(data, sessions, { scrollToSelected, resetScroll: resetScroll || scopeChanged });
 }
 
-function navigateToSnapshot(snapshot, data, sessions) {
+function navigateToSnapshot(snapshot, data, sessions, { scrollToSelected = false } = {}) {
   const next = normalizeNavigationState(snapshot, data, sessions);
   if (lastSelectedState && statesEqual(lastSelectedState, next)) return;
   if (lastSelectedState) {
@@ -108,7 +108,7 @@ function navigateToSnapshot(snapshot, data, sessions) {
   }
   historyForwardStack.length = 0;
   lastSelectedState = next.selectedRowId ? next : null;
-  applyNavigationState(next, data, sessions);
+  applyNavigationState(next, data, sessions, { scrollToSelected });
 }
 
 function handleBackNavigation() {
@@ -486,7 +486,7 @@ function renderEventRow(evt, isSelected, contextTurn, isDuplicateRequest) {
 
   const kindLabel = KIND_LABELS[evt.kind] || evt.kind;
   const cacheTokens = evt.cacheCreationTokens ?? 0;
-  const evtTime = evt.durationMs ? `${evt.durationMs}ms` : "-";
+  const evtTime = evt.durationMs ? timeText(evt.durationMs) : "-";
   const dupTooltip = "Additional context is shared with the previous row showing context usage";
   const ctxVal = isDuplicateRequest ? `<span class="dup-token" title="${dupTooltip}">↑</span>` : ctxText(cacheTokens);
   return `<tr class="row ${selectedClass} ${kindClass} ${dupClass}" data-row="${evt.id}">
@@ -622,6 +622,161 @@ function renderDetailPanel(evt, contextTurn) {
   return `<p class="empty">Unknown event type.</p>`;
 }
 
+/**
+ * Build sparkline data points from visible events + token turns.
+ * Each point maps an x-position to an event and its context total.
+ */
+function buildSparklinePoints(visibleEvents, getContextTurn) {
+  if (visibleEvents.length === 0) return [];
+  const points = [];
+  for (const evt of visibleEvents) {
+    const turn = getContextTurn(evt.timestamp);
+    points.push({
+      eventId: evt.id,
+      timestamp: evt.timestamp,
+      totalTokens: turn ? turn.totalTokens : null,
+    });
+  }
+  return points;
+}
+
+function renderSparkline(canvas, points, selectedEventId, data, sessions) {
+  if (!canvas || points.length === 0) {
+    if (canvas) canvas.style.display = "none";
+    return;
+  }
+  canvas.style.display = "block";
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  // Find max tokens for Y scale (use 200k context limit as ceiling if higher)
+  const tokenValues = points.map((p) => p.totalTokens ?? 0);
+  const maxTokens = Math.max(...tokenValues, 1);
+  const yScale = (h - 4) / maxTokens;
+  const xStep = points.length > 1 ? w / (points.length - 1) : w / 2;
+
+  // Draw filled area
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let i = 0; i < points.length; i++) {
+    const x = points.length > 1 ? i * xStep : w / 2;
+    const tokens = points[i].totalTokens ?? 0;
+    const y = h - 2 - tokens * yScale;
+    if (i === 0) ctx.lineTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.lineTo((points.length - 1) * xStep, h);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(126, 200, 248, 0.15)";
+  ctx.fill();
+
+  // Draw line
+  ctx.beginPath();
+  for (let i = 0; i < points.length; i++) {
+    const x = points.length > 1 ? i * xStep : w / 2;
+    const tokens = points[i].totalTokens ?? 0;
+    const y = h - 2 - tokens * yScale;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "rgba(126, 200, 248, 0.6)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Draw compaction drops as vertical red lines (where tokens drop to 0)
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1].totalTokens ?? 0;
+    const curr = points[i].totalTokens ?? 0;
+    if (curr === 0 && prev > 0) {
+      const x = i * xStep;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.strokeStyle = "rgba(232, 200, 122, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // Draw selected event marker
+  if (selectedEventId) {
+    const idx = points.findIndex((p) => p.eventId === selectedEventId);
+    if (idx >= 0) {
+      const x = points.length > 1 ? idx * xStep : w / 2;
+      const tokens = points[idx].totalTokens ?? 0;
+      const y = h - 2 - tokens * yScale;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = "#7ec8f8";
+      ctx.fill();
+      // Vertical line
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.strokeStyle = "rgba(126, 200, 248, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // Store points on canvas for click handler
+  canvas._sparklinePoints = points;
+  canvas._sparklineXStep = xStep;
+}
+
+function sparklineNearest(canvas, clientX) {
+  const points = canvas._sparklinePoints;
+  if (!points || points.length === 0) return -1;
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const xStep = canvas._sparklineXStep;
+  let nearestIdx = 0;
+  let nearestDist = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const px = points.length > 1 ? i * xStep : rect.width / 2;
+    const dist = Math.abs(x - px);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestIdx = i;
+    }
+  }
+  return nearestIdx;
+}
+
+function initSparklineClick(canvas, data, sessions) {
+  if (!canvas || canvas._sparklineClickBound) return;
+  canvas._sparklineClickBound = true;
+  canvas.addEventListener("click", (e) => {
+    const idx = sparklineNearest(canvas, e.clientX);
+    if (idx < 0) return;
+    const targetId = canvas._sparklinePoints[idx].eventId;
+    navigateToSnapshot(
+      { ...captureNavigationState(), selectedRowId: targetId },
+      data,
+      sessions,
+      { scrollToSelected: true }
+    );
+  });
+  canvas.addEventListener("mousemove", (e) => {
+    const points = canvas._sparklinePoints;
+    if (!points || points.length === 0) return;
+    const idx = sparklineNearest(canvas, e.clientX);
+    if (idx < 0) return;
+    const p = points[idx];
+    const tokens = p.totalTokens != null ? p.totalTokens.toLocaleString() : "?";
+    canvas.title = `${tokens} tokens`;
+  });
+}
+
 function render(data, sessions, { scrollToSelected = false, resetScroll = false } = {}) {
   currentData = data;
   currentSessions = sessions;
@@ -651,6 +806,9 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
         <div class="filter-bar-left">
           <label>Search <input id="filter-search" type="text" value="${state.searchQuery}" placeholder="tool, id, content..." /></label>
           <label>Min Time <input id="filter-time" type="text" inputmode="numeric" value="${state.minTimeMs ?? ""}" placeholder="ms" /></label>
+        </div>
+        <div class="filter-bar-center">
+          <canvas id="ctx-sparkline" height="36"></canvas>
         </div>
         <div class="filter-bar-right">
           <button id="nav-back-btn" class="nav-btn" aria-label="Go back" title="Back">
@@ -731,7 +889,7 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
             <span><strong>Events:</strong> ${visibleEvents.length}</span>
             <span><strong>Tool calls:</strong> ${toolEvents.length}</span>
             <span><strong>Context:</strong> ${visibleTotals.contextTokens.toLocaleString()} tokens</span>
-            <span><strong>Time:</strong> ${visibleTotals.runningTimeMs.toLocaleString()}ms</span>
+            <span><strong>Time:</strong> ${timeText(visibleTotals.runningTimeMs)}</span>
           </div>
           <table>
             <thead>
@@ -881,6 +1039,21 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
         nextTimeInput.setSelectionRange(cursor, cursor);
       }
     });
+  }
+
+  // Set thead sticky offset to match actual summary row height
+  const summaryRow = app.querySelector(".rows-summary");
+  if (summaryRow && newRowsPanel) {
+    const summaryH = summaryRow.offsetHeight;
+    newRowsPanel.style.setProperty("--summary-height", `${summaryH}px`);
+  }
+
+  // Render context sparkline
+  const sparkCanvas = app.querySelector("#ctx-sparkline");
+  if (sparkCanvas) {
+    const sparkPoints = buildSparklinePoints(visibleEvents, getContextTurn);
+    renderSparkline(sparkCanvas, sparkPoints, state.selectedRowId, data, sessions);
+    initSparklineClick(sparkCanvas, data, sessions);
   }
 }
 
