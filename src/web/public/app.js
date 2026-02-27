@@ -176,23 +176,35 @@ function openSessionModal() {
 
 function renderSessionModalList(sessions) {
   if (!sessionModalList) return;
-  sessionModalList.innerHTML = sessions
-    .map((session, index) => {
-      const isActive = session.sessionKey === state.sessionKey;
-      const label = formatSessionLabel(session);
-      const shortKey = session.sessionKey.slice(0, 10);
-      const recencyLabel = index === 0 ? "Most recent" : `Recent #${index + 1}`;
-      return `
-        <button class="session-option ${isActive ? "active" : ""}" data-session-option="${session.sessionKey}">
-          <div class="session-option-header">
-            <span class="session-option-title">${escapeHtml(label)}</span>
-            <span class="session-option-badge">${isActive ? "Active" : escapeHtml(recencyLabel)}</span>
-          </div>
-          <div class="session-option-meta">Project: <strong>${escapeHtml(session.projectName)}</strong> · Session: <strong>${escapeHtml(session.fileName)}</strong></div>
-          <div class="session-option-meta session-option-path">${escapeHtml(session.fullPath)}</div>
-          <div class="session-option-meta">Key: <code>${escapeHtml(shortKey)}…</code></div>
-        </button>
-      `;
+  // Group sessions by project
+  const byProject = new Map();
+  for (const session of sessions) {
+    const project = session.projectName || "Unknown";
+    if (!byProject.has(project)) byProject.set(project, []);
+    byProject.get(project).push(session);
+  }
+
+  sessionModalList.innerHTML = [...byProject.entries()]
+    .map(([project, projectSessions]) => {
+      const heading = `<div class="session-group-heading">${escapeHtml(project)}</div>`;
+      const items = projectSessions
+        .map((session) => {
+          const isActive = session.sessionKey === state.sessionKey;
+          const prompt = session.firstUserMessage
+            ? session.firstUserMessage.slice(0, 120) + (session.firstUserMessage.length > 120 ? "…" : "")
+            : session.fileName;
+          return `
+            <button class="session-option ${isActive ? "active" : ""}" data-session-option="${session.sessionKey}">
+              <div class="session-option-header">
+                <span class="session-option-title">${escapeHtml(prompt)}</span>
+                ${isActive ? '<span class="session-option-badge">Active</span>' : ""}
+              </div>
+              <div class="session-option-meta">${escapeHtml(session.fileName)}</div>
+            </button>
+          `;
+        })
+        .join("");
+      return heading + items;
     })
     .join("");
   for (const option of sessionModalList.querySelectorAll("[data-session-option]")) {
@@ -201,19 +213,6 @@ function renderSessionModalList(sessions) {
       await switchSession(nextKey, sessions);
     });
   }
-}
-
-function sumVisibleMetrics(rows) {
-  return rows.reduce(
-    (totals, row) => {
-      totals.contextTokens += row.ctxSpikeTokens ?? 0;
-      if (typeof row.timeMs === "number" && Number.isFinite(row.timeMs)) {
-        totals.runningTimeMs += row.timeMs;
-      }
-      return totals;
-    },
-    { contextTokens: 0, runningTimeMs: 0 }
-  );
 }
 
 function detailValue(value) {
@@ -559,7 +558,7 @@ function renderDetailPanel(evt, contextTurn) {
       <h4>Input</h4>
       ${renderJsonViewer(evt.toolInput)}
       <h4>Result</h4>
-      <pre>${detailValue(evt.toolResultContent)}</pre>
+      <pre>${escapeHtml(detailValue(evt.toolResultContent))}</pre>
       ${evt.toolUseResult ? `<h4>Metadata</h4>${renderJsonViewer(evt.toolUseResult)}` : ""}`;
   }
 
@@ -640,7 +639,7 @@ function buildSparklinePoints(visibleEvents, getContextTurn) {
   return points;
 }
 
-function renderSparkline(canvas, points, selectedEventId, data, sessions) {
+function renderSparkline(canvas, points, selectedEventId) {
   if (!canvas || points.length === 0) {
     if (canvas) canvas.style.display = "none";
     return;
@@ -787,8 +786,6 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
     data.network.scopes[0];
   if (activeScope) state.activeScopeId = activeScope.id;
   const visibleEvents = getVisibleEvents(activeScope);
-  const toolEvents = visibleEvents.filter((e) => e.kind === "tool_use");
-  const visibleTotals = sumVisibleMetrics(toolEvents);
   const selectedEvent =
     visibleEvents.find((evt) => evt.id === state.selectedRowId) ?? null;
   const getContextTurn = buildContextLookup(data.session.tokenTurns, state.activeScopeId);
@@ -885,16 +882,10 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
             .join("")}
         </aside>
         <div class="rows-panel">
-          <div class="rows-summary">
-            <span><strong>Events:</strong> ${visibleEvents.length}</span>
-            <span><strong>Tool calls:</strong> ${toolEvents.length}</span>
-            <span><strong>Context:</strong> ${visibleTotals.contextTokens.toLocaleString()} tokens</span>
-            <span><strong>Time:</strong> ${timeText(visibleTotals.runningTimeMs)}</span>
-          </div>
           <table>
             <thead>
               <tr>
-                <th>Event</th>
+                <th>Event <span class="th-count">(${visibleEvents.length})</span></th>
                 <th>Time</th>
                 <th>Ctx+</th>
                 <th>Total</th>
@@ -1041,18 +1032,11 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
     });
   }
 
-  // Set thead sticky offset to match actual summary row height
-  const summaryRow = app.querySelector(".rows-summary");
-  if (summaryRow && newRowsPanel) {
-    const summaryH = summaryRow.offsetHeight;
-    newRowsPanel.style.setProperty("--summary-height", `${summaryH}px`);
-  }
-
   // Render context sparkline
   const sparkCanvas = app.querySelector("#ctx-sparkline");
   if (sparkCanvas) {
     const sparkPoints = buildSparklinePoints(visibleEvents, getContextTurn);
-    renderSparkline(sparkCanvas, sparkPoints, state.selectedRowId, data, sessions);
+    renderSparkline(sparkCanvas, sparkPoints, state.selectedRowId);
     initSparklineClick(sparkCanvas, data, sessions);
   }
 }

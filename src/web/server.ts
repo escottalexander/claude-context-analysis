@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
+import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { readdir, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import type { SessionEvent } from "../types.js";
 import type { SessionTree } from "../parser/session-tree.js";
@@ -206,6 +208,37 @@ function sessionEntryFromPath(filePath: string, sessionKey: string) {
   };
 }
 
+/** Read just enough of a JSONL to find the first user text message. */
+async function extractFirstUserMessage(
+  filePath: string
+): Promise<string | null> {
+  try {
+    const stream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (
+          parsed.type === "user" &&
+          typeof parsed.message?.content === "string" &&
+          parsed.message.content.trim().length > 0
+        ) {
+          rl.close();
+          stream.destroy();
+          return parsed.message.content.trim();
+        }
+      } catch {
+        // skip malformed
+      }
+    }
+  } catch {
+    // file not readable
+  }
+  return null;
+}
+
 async function discoverSessions(rootDir: string): Promise<
   Array<{
     sessionKey: string;
@@ -213,6 +246,7 @@ async function discoverSessions(rootDir: string): Promise<
     projectName: string;
     fullPath: string;
     mtimeMs?: number;
+    firstUserMessage?: string;
   }>
 > {
   const projects = await readdir(rootDir).catch(() => []);
@@ -222,6 +256,7 @@ async function discoverSessions(rootDir: string): Promise<
     projectName: string;
     fullPath: string;
     mtimeMs?: number;
+    firstUserMessage?: string;
   }> = [];
 
   for (const project of projects) {
@@ -233,12 +268,15 @@ async function discoverSessions(rootDir: string): Promise<
       if (!file.endsWith(".jsonl")) continue;
       const fullPath = join(projectPath, file);
       const fileStat = await stat(fullPath).catch(() => null);
+      const firstUserMessage =
+        (await extractFirstUserMessage(fullPath)) ?? undefined;
       entries.push({
         sessionKey: sessionKeyFromPath(fullPath),
         fileName: file.replace(/\.jsonl$/, ""),
         projectName: project,
         fullPath,
         mtimeMs: fileStat?.mtimeMs,
+        firstUserMessage,
       });
     }
   }

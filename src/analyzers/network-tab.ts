@@ -420,8 +420,14 @@ function indexAgentIdByUuid(
   for (const event of events) {
     if (!("isSidechain" in event) || !(event as any).isSidechain) continue;
     const agentId = (event as any).agentId;
-    if (typeof agentId === "string" && "uuid" in event) {
-      map.set((event as any).uuid, agentId);
+    if (typeof agentId === "string") {
+      if ("uuid" in event) map.set((event as any).uuid, agentId);
+      // Also index by parentUuid so compact_boundary events can resolve
+      // via logicalParentUuid (which points to the parent, not the subagent's uuid)
+      const parentUuid = (event as any).parentUuid;
+      if (typeof parentUuid === "string" && !map.has(parentUuid)) {
+        map.set(parentUuid, agentId);
+      }
     }
   }
   return map;
