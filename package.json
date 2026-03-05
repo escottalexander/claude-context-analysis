@@ -1,9 +1,29 @@
 {
-  "name": "claude-context-analysis",
+  "name": "ccex",
   "version": "0.1.0",
+  "description": "Browser-based explorer for Claude Code sessions.",
+  "author": "Elliott Alexander <escottalexander@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/escottalexander/ccex"
+  },
+  "license": "MIT",
   "type": "module",
+  "bin": {
+    "ccex": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "copy:assets": "node scripts/copy-assets.mjs",
+    "prepack": "npm run build && npm run copy:assets",
+    "start": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

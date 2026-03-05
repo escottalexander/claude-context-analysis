@@ -1,4 +1,4 @@
-# Claude Code Session Explorer
+# CCEX - Claude Code Session Explorer
 
 A browser-based inspector for Claude Code JSONL session transcripts. Think Chrome DevTools' Network tab, but for understanding what Claude did during a coding session — every tool call, thinking block, context window shift, and subagent spawn laid out on a single interactive timeline.
 
@@ -16,6 +16,20 @@ Claude Code sessions can run for hundreds of turns across multiple subagents, co
 
 ## Quick Start
 
+### Run with npx
+
+```bash
+npx ccex
+```
+
+To open a specific session file:
+
+```bash
+npx ccex ~/.claude/projects/<project>/<session-id>.jsonl
+```
+
+### Local development
+
 ```bash
 npm install
 npm start
@@ -23,11 +37,7 @@ npm start
 
 Opens the explorer at `http://127.0.0.1:3457`. It auto-discovers all sessions from `~/.claude/projects/`.
 
-To open a specific session file:
-
-```bash
-npm start -- ~/.claude/projects/<project>/<session-id>.jsonl
-```
+`npm start` runs the CLI locally (`ccex`) via `tsx`.
 
 ## Features
 
@@ -85,7 +95,8 @@ Back/forward buttons track your selection history across scope jumps and row sel
 
 ```
 src/
-  index.ts                — entry point, starts the web server
+  cli.ts                  — CLI entry point (published as `ccex`)
+  index.ts                — programmatic entry point
   types.ts                — shared TypeScript types for all events and analysis
   parser/
     jsonl-reader.ts       — reads session JSONL bundles (main + subagent files)
@@ -110,3 +121,11 @@ src/
 npm test           # run tests once
 npm run test:watch # watch mode
 ```
+
+## Publish
+
+```bash
+npm publish --access public
+```
+
+The `prepack` script builds TypeScript and copies static web assets into `dist/` so the CLI works when installed via npm.

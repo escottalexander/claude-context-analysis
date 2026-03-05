@@ -143,9 +143,33 @@ export async function startWebServer(
     res.end(JSON.stringify({ error: "Not found" }));
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(port, "127.0.0.1", () => resolve());
-  });
+  const host = "127.0.0.1";
+  const MAX_PORT_ATTEMPTS = 100;
+
+  if (port === 0) {
+    await listen(server, port, host);
+  } else {
+    let currentPort = port;
+    let attempts = 0;
+    while (true) {
+      try {
+        await listen(server, currentPort, host);
+        break;
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== "EADDRINUSE") {
+          throw err;
+        }
+        attempts += 1;
+        if (attempts >= MAX_PORT_ATTEMPTS) {
+          throw new Error(
+            `Could not find an open port starting at ${port} after ${MAX_PORT_ATTEMPTS} attempts`
+          );
+        }
+        currentPort += 1;
+      }
+    }
+  }
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
 
@@ -159,6 +183,25 @@ export async function startWebServer(
         });
       }),
   };
+}
+
+function listen(
+  server: import("node:http").Server,
+  port: number,
+  host: string
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("error", onError);
+      reject(error);
+    };
+
+    server.once("error", onError);
+    server.listen(port, host, () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
 }
 
 function json(
