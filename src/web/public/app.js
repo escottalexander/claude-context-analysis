@@ -29,6 +29,7 @@ const state = {
   searchQuery: "",
   minTimeMs: null,
   sessionKey: null,
+  sessionSearchQuery: "",
 };
 
 const historyBackStack = [];
@@ -46,6 +47,7 @@ const sessionModalTrigger = document.getElementById("session-modal-trigger");
 const sessionCurrentLabel = document.getElementById("session-current-label");
 const sessionModal = document.getElementById("session-modal");
 const sessionModalList = document.getElementById("session-modal-list");
+const sessionModalSearchInput = document.getElementById("session-modal-search");
 const sessionModalCloseBtn = document.getElementById("session-modal-close");
 const sessionModalBackdrop = document.getElementById("session-modal-backdrop");
 let sessionModalOpen = false;
@@ -146,6 +148,41 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function splitScopeLabel(label) {
+  const normalized = String(label ?? "");
+  const separator = normalized.indexOf(": ");
+  if (separator > 0) {
+    return {
+      type: normalized.slice(0, separator),
+      description: normalized.slice(separator + 2),
+    };
+  }
+  return {
+    type: null,
+    description: normalized,
+  };
+}
+
+function renderScopeButton(scope, isActive) {
+  const fullLabel = scope.label ?? scope.id;
+  const parts = splitScopeLabel(fullLabel);
+  const content = parts.type
+    ? `<span class="scope-label">
+         <span class="scope-label-type">${escapeHtml(parts.type)}</span>
+         <span class="scope-label-desc">${escapeHtml(parts.description)}</span>
+       </span>`
+    : `<span class="scope-label-single">${escapeHtml(parts.description)}</span>`;
+  return `
+    <button
+      class="scope-btn ${isActive ? "active" : ""}"
+      data-scope="${scope.id}"
+      title="${escapeHtml(fullLabel)}"
+    >
+      ${content}
+    </button>
+  `;
+}
+
 function formatSessionLabel(session) {
   return `${session.projectName}/${session.fileName}`;
 }
@@ -168,6 +205,15 @@ function openSessionModal() {
   sessionModal.classList.remove("hidden");
   sessionModalOpen = true;
   if (sessionModalTrigger) sessionModalTrigger.setAttribute("aria-expanded", "true");
+  if (sessionModalSearchInput instanceof HTMLInputElement) {
+    sessionModalSearchInput.value = state.sessionSearchQuery;
+    sessionModalSearchInput.focus();
+    sessionModalSearchInput.setSelectionRange(
+      sessionModalSearchInput.value.length,
+      sessionModalSearchInput.value.length
+    );
+    return;
+  }
   const activeOption = sessionModalList.querySelector(".session-option.active");
   const firstOption = sessionModalList.querySelector(".session-option");
   const focusTarget = activeOption ?? firstOption;
@@ -176,37 +222,47 @@ function openSessionModal() {
 
 function renderSessionModalList(sessions) {
   if (!sessionModalList) return;
+  const query = state.sessionSearchQuery.trim().toLowerCase();
+  const filteredSessions = query
+    ? sessions.filter((session) => {
+        const prompt = session.firstUserMessage ?? "";
+        const haystack = `${session.projectName ?? ""} ${session.fileName ?? ""} ${prompt} ${session.sessionKey ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+    : sessions;
   // Group sessions by project
   const byProject = new Map();
-  for (const session of sessions) {
+  for (const session of filteredSessions) {
     const project = session.projectName || "Unknown";
     if (!byProject.has(project)) byProject.set(project, []);
     byProject.get(project).push(session);
   }
 
-  sessionModalList.innerHTML = [...byProject.entries()]
-    .map(([project, projectSessions]) => {
-      const heading = `<div class="session-group-heading">${escapeHtml(project)}</div>`;
-      const items = projectSessions
-        .map((session) => {
-          const isActive = session.sessionKey === state.sessionKey;
-          const prompt = session.firstUserMessage
-            ? session.firstUserMessage.slice(0, 120) + (session.firstUserMessage.length > 120 ? "…" : "")
-            : session.fileName;
-          return `
-            <button class="session-option ${isActive ? "active" : ""}" data-session-option="${session.sessionKey}">
-              <div class="session-option-header">
-                <span class="session-option-title">${escapeHtml(prompt)}</span>
-                ${isActive ? '<span class="session-option-badge">Active</span>' : ""}
-              </div>
-              <div class="session-option-meta">${escapeHtml(session.fileName)}</div>
-            </button>
-          `;
+  sessionModalList.innerHTML = filteredSessions.length === 0
+    ? '<div class="session-empty-state">No sessions match your search.</div>'
+    : [...byProject.entries()]
+        .map(([project, projectSessions]) => {
+          const heading = `<div class="session-group-heading">${escapeHtml(project)}</div>`;
+          const items = projectSessions
+            .map((session) => {
+              const isActive = session.sessionKey === state.sessionKey;
+              const prompt = session.firstUserMessage
+                ? session.firstUserMessage.slice(0, 120) + (session.firstUserMessage.length > 120 ? "…" : "")
+                : session.fileName;
+              return `
+                <button class="session-option ${isActive ? "active" : ""}" data-session-option="${session.sessionKey}">
+                  <div class="session-option-header">
+                    <span class="session-option-title">${escapeHtml(prompt)}</span>
+                    ${isActive ? '<span class="session-option-badge">Active</span>' : ""}
+                  </div>
+                  <div class="session-option-meta">${escapeHtml(session.fileName)}</div>
+                </button>
+              `;
+            })
+            .join("");
+          return heading + items;
         })
         .join("");
-      return heading + items;
-    })
-    .join("");
   for (const option of sessionModalList.querySelectorAll("[data-session-option]")) {
     option.addEventListener("click", async () => {
       const nextKey = option.getAttribute("data-session-option");
@@ -780,7 +836,9 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
   currentData = data;
   currentSessions = sessions;
   const prevRowsPanel = app.querySelector(".rows-panel");
+  const prevScopeTabs = app.querySelector(".scope-tabs");
   const prevScrollTop = resetScroll ? 0 : (prevRowsPanel ? prevRowsPanel.scrollTop : 0);
+  const prevScopeScrollTop = prevScopeTabs ? prevScopeTabs.scrollTop : 0;
   const activeScope =
     data.network.scopes.find((scope) => scope.id === state.activeScopeId) ??
     data.network.scopes[0];
@@ -872,13 +930,7 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
         <aside class="scope-tabs">
           <h3 class="panel-title">Agents</h3>
           ${data.network.scopes
-            .map(
-              (scope) => `
-            <button class="scope-btn ${scope.id === state.activeScopeId ? "active" : ""}" data-scope="${scope.id}">
-              ${scope.label}
-            </button>
-          `
-            )
+            .map((scope) => renderScopeButton(scope, scope.id === state.activeScopeId))
             .join("")}
         </aside>
         <div class="rows-panel">
@@ -917,7 +969,9 @@ function render(data, sessions, { scrollToSelected = false, resetScroll = false 
       </section>
   `;
   const newRowsPanel = app.querySelector(".rows-panel");
+  const newScopeTabs = app.querySelector(".scope-tabs");
   if (newRowsPanel) newRowsPanel.scrollTop = prevScrollTop;
+  if (newScopeTabs) newScopeTabs.scrollTop = prevScopeScrollTop;
   if (scrollToSelected && state.selectedRowId && newRowsPanel) {
     const selectedRow = newRowsPanel.querySelector(`[data-row="${state.selectedRowId}"]`);
     if (selectedRow) {
@@ -1035,6 +1089,13 @@ if (sessionModalCloseBtn) {
 if (sessionModalBackdrop) {
   sessionModalBackdrop.addEventListener("click", () => {
     closeSessionModal();
+  });
+}
+
+if (sessionModalSearchInput instanceof HTMLInputElement) {
+  sessionModalSearchInput.addEventListener("input", (event) => {
+    state.sessionSearchQuery = event.target.value;
+    renderSessionModalList(currentSessions);
   });
 }
 

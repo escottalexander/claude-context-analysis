@@ -111,6 +111,22 @@ describe("web ui model", () => {
     expect(css).toContain("grid-template-columns: 180px");
   });
 
+  it("preserves agents pane scroll position across rerenders", () => {
+    const appJsPath = path.join(
+      import.meta.dirname,
+      "..",
+      "src",
+      "web",
+      "public",
+      "app.js"
+    );
+    const appSource = readFileSync(appJsPath, "utf8");
+    expect(appSource).toContain("const prevScopeTabs = app.querySelector(\".scope-tabs\")");
+    expect(appSource).toContain("const prevScopeScrollTop = prevScopeTabs ? prevScopeTabs.scrollTop : 0");
+    expect(appSource).toContain("const newScopeTabs = app.querySelector(\".scope-tabs\")");
+    expect(appSource).toContain("if (newScopeTabs) newScopeTabs.scrollTop = prevScopeScrollTop");
+  });
+
   it("preserves search input focus after input-driven rerender", () => {
     const appJsPath = path.join(
       import.meta.dirname,

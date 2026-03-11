@@ -216,10 +216,31 @@ h1 {
   padding: 8px;
 }
 
+.session-search-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 4px 0 8px;
+  background: #252526;
+}
+
+.session-search-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .session-modal-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.session-empty-state {
+  border: 1px dashed #464646;
+  border-radius: 8px;
+  color: #9d9d9d;
+  text-align: center;
+  padding: 18px 12px;
 }
 
 .session-group-heading {
@@ -338,6 +359,45 @@ input {
   flex-direction: column;
   gap: 6px;
   overflow-y: auto;
+}
+
+.scope-btn {
+  width: 100%;
+  text-align: left;
+  padding: 7px 8px;
+}
+
+.scope-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.scope-label-type {
+  color: #9fbfd2;
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-label-desc,
+.scope-label-single {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  line-height: 1.25;
+  font-size: 12px;
+}
+
+.scope-btn.active .scope-label-type {
+  color: #bfe6ff;
 }
 
 .rows-panel {

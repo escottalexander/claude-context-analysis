@@ -20,13 +20,22 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
   const assistantsByToolUseId = indexAssistantByToolUseId(tree.getAssistantEvents());
   const allEvents = tree.getChronologicalEvents();
   const taskSubagentByToolUseId = indexTaskSubagentByToolUseId(allEvents);
+  const subagentLabelsById = indexSubagentLabelByAgentId(
+    tree,
+    taskSubagentByToolUseId
+  );
   const uuidToAgentId = indexAgentIdByUuid(allEvents);
   const scopes = new Map<string, NetworkAgentScope>();
 
   const ensureScope = (scopeId: string): NetworkAgentScope => {
     let scope = scopes.get(scopeId);
     if (!scope) {
-      scope = { id: scopeId, label: scopeId, requests: [], events: [] };
+      scope = {
+        id: scopeId,
+        label: subagentLabelsById.get(scopeId) ?? scopeId,
+        requests: [],
+        events: [],
+      };
       scopes.set(scopeId, scope);
     }
     return scope;
@@ -43,7 +52,7 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
       toolName: pair.toolUse.name,
       scopeId,
       linkedSubagentId:
-        pair.toolUse.name === "Task"
+        isSubagentSpawnerTool(pair.toolUse.name)
           ? (taskSubagentByToolUseId.get(pair.toolUse.id) ?? null)
           : null,
       startTimestamp: pair.assistantTimestamp,
@@ -97,7 +106,7 @@ export function analyzeNetworkTab(tree: SessionTree): NetworkTabResult {
           a.timestamp.localeCompare(b.timestamp)
         ),
       }))
-      .sort(compareScopeIds),
+      .sort(compareScopesByUsageTime),
   };
 }
 
@@ -147,7 +156,7 @@ function buildTimelineEvents(
         });
       } else if (block.type === "tool_use") {
         const linkedSubagentId =
-          block.name === "Task"
+          isSubagentSpawnerTool(block.name)
             ? (taskSubagentMap.get(block.id) ?? null)
             : null;
         results.push({
@@ -410,6 +419,43 @@ function indexTaskSubagentByToolUseId(
   return map;
 }
 
+function indexSubagentLabelByAgentId(
+  tree: SessionTree,
+  subagentByToolUseId: Map<string, string>
+): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const pair of tree.getToolPairs()) {
+    if (!isSubagentSpawnerTool(pair.toolUse.name)) continue;
+    const agentId = subagentByToolUseId.get(pair.toolUse.id);
+    if (!agentId || map.has(agentId)) continue;
+    const label = deriveSubagentLabel(pair.toolUse.input);
+    if (label) map.set(agentId, label);
+  }
+
+  return map;
+}
+
+function deriveSubagentLabel(input: Record<string, unknown>): string | null {
+  const description =
+    typeof input.description === "string" && input.description.trim().length > 0
+      ? input.description.trim()
+      : null;
+  const subagentType = readSubagentType(input);
+
+  if (!description && !subagentType) return null;
+  if (description && subagentType) return `${subagentType}: ${description}`;
+  return subagentType ?? description;
+}
+
+function readSubagentType(input: Record<string, unknown>): string | null {
+  const snake = input.subagent_type;
+  if (typeof snake === "string" && snake.trim().length > 0) return snake.trim();
+  const camel = (input as Record<string, unknown>).subagentType;
+  if (typeof camel === "string" && camel.trim().length > 0) return camel.trim();
+  return null;
+}
+
 /**
  * Build a map from event uuid → agentId for all sidechain events.
  * Used to resolve logicalParentUuid on compact_boundary events
@@ -441,8 +487,31 @@ function computeTimeMs(start: string, end: string | null): number | null {
   return time >= 0 ? time : null;
 }
 
-function compareScopeIds(a: NetworkAgentScope, b: NetworkAgentScope): number {
+function compareScopesByUsageTime(a: NetworkAgentScope, b: NetworkAgentScope): number {
   if (a.id === "main" && b.id !== "main") return -1;
   if (b.id === "main" && a.id !== "main") return 1;
+
+  const aFirstTimestamp = getScopeFirstTimestamp(a);
+  const bFirstTimestamp = getScopeFirstTimestamp(b);
+  if (aFirstTimestamp && bFirstTimestamp && aFirstTimestamp !== bFirstTimestamp) {
+    return aFirstTimestamp.localeCompare(bFirstTimestamp);
+  }
+  if (aFirstTimestamp && !bFirstTimestamp) return -1;
+  if (!aFirstTimestamp && bFirstTimestamp) return 1;
+
   return a.id.localeCompare(b.id);
+}
+
+function isSubagentSpawnerTool(toolName: string): boolean {
+  return toolName === "Task" || toolName === "Agent";
+}
+
+function getScopeFirstTimestamp(scope: NetworkAgentScope): string | null {
+  const requestTimestamp = scope.requests[0]?.startTimestamp ?? null;
+  const eventTimestamp = scope.events[0]?.timestamp ?? null;
+
+  if (requestTimestamp && eventTimestamp) {
+    return requestTimestamp <= eventTimestamp ? requestTimestamp : eventTimestamp;
+  }
+  return requestTimestamp ?? eventTimestamp;
 }
